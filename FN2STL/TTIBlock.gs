@@ -169,6 +169,9 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     // - Subtitle Edit los muestra convertidos a milisegundos (1 frame = 40ms)
     if (frames > 24) frames = 24;
     
+    // Ajuste para compatibilidad con Subtitle Edit
+    if (frames == 24) frames = 23; // Evita problemas en límites de frames
+    
     // Para debug: mostrar el timecode normalizado
     if (verboseFlag) {
       Logger.log(`Convertido timecode ${timecode} a componentes: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`);
@@ -235,7 +238,7 @@ function processTextForSTL(text, verboseFlag) {
 }
 
 /**
- * Mapea caracteres especiales a sus equivalentes en el estándar Latin/ISO-8859-1
+ * Mapea caracteres especiales a sus equivalentes según el estándar EBU
  * @param {string} text - Texto a procesar
  * @return {string} - Texto con caracteres especiales mapeados
  */
@@ -246,49 +249,50 @@ function mapSpecialCharacters(text) {
     Logger.log(`Mapeando caracteres especiales de: "${text}"`);
   }
   
-  // Tabla de mapeo para caracteres especiales usando Latin/ISO-8859-1 (CCT=01)
-  // Esta tabla garantiza compatibilidad con Subtitle Edit
+  // Tabla de mapeo para caracteres especiales
+  // Usamos una versión simplificada del mapeo directo al código byte ISO 8859-1
+  // para máxima compatibilidad con Subtitle Edit
   const charMap = {
-    // Vocales acentuadas en español - ISO-8859-1
-    'á': String.fromCharCode(0xE1), // á (ISO-8859-1: 225)
-    'é': String.fromCharCode(0xE9), // é (ISO-8859-1: 233)
-    'í': String.fromCharCode(0xED), // í (ISO-8859-1: 237)
-    'ó': String.fromCharCode(0xF3), // ó (ISO-8859-1: 243)
-    'ú': String.fromCharCode(0xFA), // ú (ISO-8859-1: 250)
-    'Á': String.fromCharCode(0xC1), // Á (ISO-8859-1: 193)
-    'É': String.fromCharCode(0xC9), // É (ISO-8859-1: 201)
-    'Í': String.fromCharCode(0xCD), // Í (ISO-8859-1: 205)
-    'Ó': String.fromCharCode(0xD3), // Ó (ISO-8859-1: 211)
-    'Ú': String.fromCharCode(0xDA), // Ú (ISO-8859-1: 218)
+    // Vocales acentuadas en español - ISO 8859-1 códigos directos
+    'á': '\xE1', // á (ISO-8859-1: 225)
+    'é': '\xE9', // é (ISO-8859-1: 233)
+    'í': '\xED', // í (ISO-8859-1: 237)
+    'ó': '\xF3', // ó (ISO-8859-1: 243)
+    'ú': '\xFA', // ú (ISO-8859-1: 250)
+    'Á': '\xC1', // Á (ISO-8859-1: 193)
+    'É': '\xC9', // É (ISO-8859-1: 201)
+    'Í': '\xCD', // Í (ISO-8859-1: 205)
+    'Ó': '\xD3', // Ó (ISO-8859-1: 211)
+    'Ú': '\xDA', // Ú (ISO-8859-1: 218)
     
     // Otros caracteres especiales españoles
-    'ñ': String.fromCharCode(0xF1), // ñ (ISO-8859-1: 241)
-    'Ñ': String.fromCharCode(0xD1), // Ñ (ISO-8859-1: 209)
-    'ü': String.fromCharCode(0xFC), // ü (ISO-8859-1: 252)
-    'Ü': String.fromCharCode(0xDC), // Ü (ISO-8859-1: 220)
+    'ñ': '\xF1', // ñ (ISO-8859-1: 241)
+    'Ñ': '\xD1', // Ñ (ISO-8859-1: 209)
+    'ü': '\xFC', // ü (ISO-8859-1: 252)
+    'Ü': '\xDC', // Ü (ISO-8859-1: 220)
     
     // Signos de puntuación españoles
-    '¿': String.fromCharCode(0xBF), // ¿ (ISO-8859-1: 191)
-    '¡': String.fromCharCode(0xA1), // ¡ (ISO-8859-1: 161)
+    '¿': '\xBF', // ¿ (ISO-8859-1: 191)
+    '¡': '\xA1', // ¡ (ISO-8859-1: 161)
     
     // Caracteres especiales portugueses
-    'ç': String.fromCharCode(0xE7), // ç (ISO-8859-1: 231)
-    'Ç': String.fromCharCode(0xC7), // Ç (ISO-8859-1: 199)
-    'ã': String.fromCharCode(0xE3), // ã (ISO-8859-1: 227)
-    'Ã': String.fromCharCode(0xC3), // Ã (ISO-8859-1: 195)
-    'õ': String.fromCharCode(0xF5), // õ (ISO-8859-1: 245)
-    'Õ': String.fromCharCode(0xD5), // Õ (ISO-8859-1: 213)
-    'â': String.fromCharCode(0xE2), // â (ISO-8859-1: 226)
-    'Â': String.fromCharCode(0xC2), // Â (ISO-8859-1: 194)
-    'ê': String.fromCharCode(0xEA), // ê (ISO-8859-1: 234)
-    'Ê': String.fromCharCode(0xCA), // Ê (ISO-8859-1: 202)
-    'ô': String.fromCharCode(0xF4), // ô (ISO-8859-1: 244)
-    'Ô': String.fromCharCode(0xD4), // Ô (ISO-8859-1: 212)
+    'ç': '\xE7', // ç (ISO-8859-1: 231)
+    'Ç': '\xC7', // Ç (ISO-8859-1: 199)
+    'ã': '\xE3', // ã (ISO-8859-1: 227)
+    'Ã': '\xC3', // Ã (ISO-8859-1: 195)
+    'õ': '\xF5', // õ (ISO-8859-1: 245)
+    'Õ': '\xD5', // Õ (ISO-8859-1: 213)
+    'â': '\xE2', // â (ISO-8859-1: 226)
+    'Â': '\xC2', // Â (ISO-8859-1: 194)
+    'ê': '\xEA', // ê (ISO-8859-1: 234)
+    'Ê': '\xCA', // Ê (ISO-8859-1: 202)
+    'ô': '\xF4', // ô (ISO-8859-1: 244)
+    'Ô': '\xD4', // Ô (ISO-8859-1: 212)
     
     // Símbolos comunes
-    '°': String.fromCharCode(0xB0), // grados (ISO-8859-1: 176)
-    '®': String.fromCharCode(0xAE), // registered (ISO-8859-1: 174)
-    '©': String.fromCharCode(0xA9), // copyright (ISO-8859-1: 169)
+    '°': '\xB0', // grados (ISO-8859-1: 176)
+    '®': '\xAE', // registered (ISO-8859-1: 174)
+    '©': '\xA9', // copyright (ISO-8859-1: 169)
     
     // Caracteres que necesitan sustitución simple
     '…': '...',
@@ -314,7 +318,7 @@ function mapSpecialCharacters(text) {
     Logger.log(`Bytes originales: ${bytesString}`);
   }
   
-  // Reemplazar cada carácter especial
+  // Reemplazar cada carácter especial usando string directo en lugar de fromCharCode
   for (const [original, replacement] of Object.entries(charMap)) {
     // Usar una expresión regular con la bandera 'g' para reemplazar todas las ocurrencias
     const regex = new RegExp(original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');

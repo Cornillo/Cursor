@@ -24,20 +24,20 @@ function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFla
   }
   
   // 1. Código de Página de Caracteres (CPN: Code Page Number)
-  // Usar "850" para la tabla de caracteres Latin-1
-  writeStringToBuffer(gsiBlock, "850", 0, 3);
+  // Usar "865" (Nordic) que tiene mejor compatibilidad con caracteres españoles en Subtitle Edit
+  writeStringToBuffer(gsiBlock, "865", 0, 3);
   
   // 2. Código de Disco (DFC: Disk Format Code)
   // "STL25.01" para 25 fps (formato PAL) - Compatible con Subtitle Edit
   writeStringToBuffer(gsiBlock, "STL25.01", 3, 8);
   
   // 3. Código de Estándar de Visualización (DSC: Display Standard Code)
-  // 0 = Abierto (open subtitling)
-  writeStringToBuffer(gsiBlock, "0", 11, 1);
+  // 1 = nivel 1 teletext - mejor para Subtitle Edit
+  writeStringToBuffer(gsiBlock, "1", 11, 1);
   
   // 4. Código de Tabla de Caracteres (CCT: Character Code Table)
-  // 00 = ISO 6937/2 - 333 (Latin), más compatible con Subtitle Edit
-  writeStringToBuffer(gsiBlock, "00", 12, 2);
+  // 01 = Latin/ISO 8859-1 (mejor para caracteres españoles)
+  writeStringToBuffer(gsiBlock, "01", 12, 2);
   
   // 5. Código de Idioma (LC: Language Code)
   writeStringToBuffer(gsiBlock, languageCode, 14, 2);

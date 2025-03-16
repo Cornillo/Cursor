@@ -263,10 +263,16 @@ function validateAndFormatTimecode(value, verboseFlag) {
       }
       
       // Para STL25.01 (PAL): Máximo 24 frames (0-24)
+      // Subtitle Edit muestra timecodes en ms, donde cada frame = 40ms (1000/25fps)
+      // Ajustar a valores posibles para PAL
       if (frames < 0 || frames > 24) {
         if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato PAL...`);
         frames = Math.max(0, Math.min(frames, 24));
       }
+      
+      // Para compatibilidad con Subtitle Edit, ajustamos el último frame
+      // ya que puede haber diferencias de redondeo
+      if (frames == 24) frames = 23; // Evita problemas de límite de frames
       
       // Formatear con ceros a la izquierda
       const formattedTimecode = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
@@ -276,16 +282,20 @@ function validateAndFormatTimecode(value, verboseFlag) {
       return formattedTimecode;
     }
     
-    // Si es un objeto Date, convertir a timecode
+    // Si es un objeto Date, convertir a timecode con ajuste para PAL
     if (value instanceof Date) {
       if (verboseFlag) Logger.log(`Convirtiendo Date a timecode: ${value}`);
       
       const hours = value.getHours();
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
-      // Para 25fps, convertimos milisegundos a frames
+      
+      // Para 25fps, convertimos milisegundos a frames con ajuste especial
       const ms = value.getMilliseconds();
-      const frames = Math.min(Math.floor(ms / 40), 24); // 1000ms / 25fps = 40ms por frame
+      let frames = Math.floor(ms / 40); // 1000ms / 25fps = 40ms por frame
+      
+      // Ajustar el último frame para evitar problemas en Subtitle Edit
+      if (frames >= 24) frames = 23;
       
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
     }
@@ -328,8 +338,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const seconds = parseInt(msMatch[3], 10);
         const ms = parseInt(msMatch[4], 10);
         
-        // Convertir milisegundos a frames para 25fps (formato PAL)
-        const frames = Math.min(Math.floor(ms / 40), 24); // 1000ms / 25fps = 40ms por frame
+        // Convertir milisegundos a frames para 25fps (formato PAL) con ajuste
+        let frames = Math.floor(ms / 40); // 1000ms / 25fps = 40ms por frame
+        if (frames >= 24) frames = 23; // Ajuste para Subtitle Edit
         
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
       }
