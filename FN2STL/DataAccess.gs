@@ -224,7 +224,7 @@ function addSecondsToTimecode(timecode, seconds) {
 
 /**
  * Valida y formatea un código de tiempo al formato estándar HH:MM:SS:FF
- * adaptado específicamente para Subtitle Edit usando 24fps
+ * adaptado específicamente para formato de 24fps y Subtitle Edit
  * @param {any} value - Valor a validar y formatear
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {string|null} Código de tiempo formateado o null si es inválido

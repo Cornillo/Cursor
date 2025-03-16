@@ -118,7 +118,7 @@ function convertNumberToBCD(number, byteLength) {
 
 /**
  * Convierte un código de tiempo al formato de bytes BCD para STL
- * Optimizado para 25fps (PAL) - Formato EBU STL
+ * Optimizado para 24fps - Formato EBU STL compatible con Subtitle Edit
  * @param {string} timecode - Código de tiempo en formato HH:MM:SS:FF
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Representación en bytes del código de tiempo
@@ -150,7 +150,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     const seconds = parseInt(parts[2], 10);
     let frames = parseInt(parts[3], 10);
     
-    // Validar rangos (adaptado para 25fps - PAL)
+    // Validar rangos (adaptado para 24fps)
     if (hours < 0 || hours > 23) {
       if (verboseFlag) Logger.log(`Horas fuera de rango (0-23): ${hours}`);
       return result;
@@ -166,10 +166,10 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
       return result;
     }
     
-    // Para 25fps (PAL), frames debe estar entre 0-24
-    if (frames < 0 || frames > 24) {
-      if (verboseFlag) Logger.log(`Frames fuera de rango para 25fps (0-24): ${frames}, ajustando a valor válido`);
-      frames = Math.max(0, Math.min(frames, 24));
+    // Para 24fps, frames debe estar entre 0-23
+    if (frames < 0 || frames > 23) {
+      if (verboseFlag) Logger.log(`Frames fuera de rango para 24fps (0-23): ${frames}, ajustando a valor válido`);
+      frames = Math.max(0, Math.min(frames, 23));
     }
     
     // Convertir cada componente a BCD (Binary Coded Decimal)
@@ -195,7 +195,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
 
 /**
  * Procesa texto para formato STL con mejor manejo de caracteres especiales
- * Optimizado para CP437 y compatible con Subtitle Edit
+ * Optimizado para CP437 y formato 24fps compatible con Subtitle Edit
  * @param {string} text - Texto del subtítulo
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Array de bytes procesados

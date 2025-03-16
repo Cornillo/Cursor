@@ -926,7 +926,7 @@ function probarConversionCompleta(sheetId) {
 
 /**
  * Función de prueba para verificar las correcciones
- * Especialmente optimizada para caracteres especiales "í" y "ó"
+ * Especialmente optimizada para caracteres especiales y formato 24fps
  */
 function probarCorrecciones() {
   // Activar modo verbose para logs detallados
@@ -940,7 +940,7 @@ function probarCorrecciones() {
   
   try {
     // Crear carpeta temporal para pruebas
-    const folderName = `Prueba_STL_CP437_${new Date().getTime()}`;
+    const folderName = `Prueba_STL_24FPS_${new Date().getTime()}`;
     const folder = DriveApp.createFolder(folderName);
     Logger.log(`Carpeta creada: ${folderName} (ID: ${folder.getId()})`);
     
