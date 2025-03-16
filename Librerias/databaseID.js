@@ -37,7 +37,6 @@ function getStructure(){
     'DWO_Files': { columna: 'A', dwoCol: 'P' },
     'DWO-MixAndEdit': { columna: 'A', dwoCol: 'Q' },
     'DWO-Observation': { columna: 'A', dwoCol: 'Z' },
-    'DWO_FilesLines': { columna: 'A', dwoCol: 'Q' },
     'DWO_FilesCharacter': { columna: 'A', dwoCol: 'N' },
     'DWO_Song': { columna: 'A', dwoCol: 'P' },
     'DWO_SongDetail': { columna: 'A', dwoCol: 'G' },

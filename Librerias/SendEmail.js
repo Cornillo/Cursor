@@ -70,7 +70,7 @@ function AppSendEmailX(destinatario, remitente, nombreDestinatario, idDocumento,
   if (idPDF) {
     try {
       const archivoPDF = DriveApp.getFileById(idPDF);
-      opcionesCorreo.attachments = [archivoPDF.getAs(MimeType.PDF)];
+      opcionesCorreo.attachments = [archivoPDF.getAs("application/pdf")];
     } catch (e) {
       throw new Error('Error al adjuntar PDF: ' + e.message);
     }

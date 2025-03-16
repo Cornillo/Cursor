@@ -1,4 +1,15 @@
 /*
+### DubApp Process - Sistema de Procesamiento de Colas
+Este script maneja el procesamiento de tareas en cola para el sistema DubApp.
+Gestiona la sincronización de datos entre diferentes hojas de cálculo y
+controla el flujo de trabajo para actualizar registros en tiempo real.
+
+### Descripción General
+El script procesa tareas pendientes en la hoja CON-TaskCurrent, comparando datos
+entre hojas "source" y "witness" para detectar cambios y actualizar registros.
+Utiliza un sistema de locks para evitar ejecuciones simultáneas y mantiene
+un registro detallado de los cambios realizados.
+
 ### Árbol de Llamadas de Funciones
 processQueue()
 ├── DataLoad(ssAux, sheetNameAux, keyAux)
@@ -9,17 +20,47 @@ processQueue()
 │   └── uncodeChannelEventType(chainSource, chainWitness)
 │       └── LazyLoad("DubAppActive01", "DWO-ChannelEventType")
 
-Funciones Utilitarias:
-- dateHandle(d, timezone, timestamp_format)
-- isValidDate(d)
-- daysBetweenToday(dateParam)
-- setCache(auxKey, valueToCache)
-- getCachedValue(auxKey)
-- inhibitAppend(auxEnvironment, auxTable, auxKey)
+### Funciones Principales:
+- processQueue(): Función principal que procesa las tareas pendientes en la cola
+- DataLoad(ssAux, sheetNameAux, keyAux): Carga datos de las hojas source y witness
+- ObtainVariation(taskAux): Detecta variaciones entre registros source y witness
 
-Funciones de Control:
-- Llamador()
-- reset()
+### Funciones de Gestión de Locks:
+- clearAllLocks(): Limpia todos los locks que puedan haber quedado activos
+- checkLockStatus(): Verifica el estado actual de los locks y propiedades relacionadas
+
+### Funciones Utilitarias:
+- dateHandle(d, timezone, timestamp_format): Maneja formatos de fecha
+- isValidDate(d): Verifica si una fecha es válida
+- daysBetweenToday(dateParam): Calcula días entre una fecha y hoy
+- setCache(auxKey, valueToCache): Almacena valores en caché
+- getCachedValue(auxKey): Recupera valores de la caché
+- inhibitAppend(auxEnvironment, auxTable, auxKey): Controla la adición de registros
+- uncodeChannelEventType(chainSource, chainWitness): Decodifica tipos de eventos
+
+### Funciones de Control:
+- Llamador(): Inicializa el entorno para ejecución manual
+
+### Guía de Solución de Problemas:
+1. Error "The starting column of the range is too small":
+   - Este error ocurre cuando se intenta acceder a una columna con índice menor a 1
+   - El script incluye validaciones para evitar este problema
+
+2. Proceso bloqueado o locks persistentes:
+   - Ejecutar la función clearAllLocks() para liberar todos los locks
+   - Usar checkLockStatus() para diagnosticar el estado actual
+
+3. Errores de acceso a datos:
+   - Verificar que las hojas existan y tengan los nombres correctos
+   - Comprobar que las columnas esperadas estén presentes
+
+4. Problemas de rendimiento:
+   - Revisar el tamaño de los datos procesados
+   - Considerar procesar en lotes más pequeños
+
+5. Errores en el procesamiento de fechas:
+   - Verificar el formato de las fechas en las hojas de origen
+   - Comprobar la configuración de zona horaria (timezone)
 */
 
 //Global declaration
@@ -141,304 +182,259 @@ function processQueue() {
  //Version dev 18/3/24
  //Database architecture doc https://docs.google.com/document/d/1vtoE9m8mkgFHjs-C27YjS55kobLsNK01086UE4s0h38/edit
 
- let lock = null;
+ // Añadir contador de reintentos para el acceso inicial
+ const MAX_RETRIES = 3;
+ let retryCount = 0;
+ let ss;
+
+ // Definir las constantes de tiempo al inicio de la función
+ const START_TIME = Date.now();
+ const MAX_EXECUTION_TIME = 8 * 60 * 1000; // 8 minutos
+
+ while (retryCount < MAX_RETRIES) {
+   try {
+     //Lock script
+     var lock = LockService.getScriptLock();
+     if (!lock.tryLock(1)) {  // Intenta obtener el lock inmediatamente
+       console.log('Another thread of processQueue already running (lock service)');
+       if (lock) lock.releaseLock();
+       return;    
+     }
+
+     //Check if service enabled 
+     ss = SpreadsheetApp.openById(allIDs['controlID']);
+     break; // Si tiene éxito, salir del bucle
+     
+   } catch (e) {
+     retryCount++;
+     if (retryCount === MAX_RETRIES) {
+       console.error('Failed to access spreadsheet after ' + MAX_RETRIES + ' attempts: ' + e.toString());
+       if (lock) lock.releaseLock();
+       throw e;
+     }
+     // Esperar antes de reintentar (tiempo exponencial)
+     Utilities.sleep(Math.pow(2, retryCount) * 1000);
+   }
+ }
+
  try {
-   // Reducir el número máximo de reintentos y ajustar el tiempo máximo de ejecución
-   const MAX_RETRIES = 2;
-   const MAX_EXECUTION_TIME = 6 * 60 * 1000; // 6 minutos para dar más margen
-   var BATCH_SIZE = 10; // Reducir el tamaño del lote para procesar menos registros por iteración
-   const START_TIME = Date.now();
+   ConControl = ss.getSheetByName("CON-Control");
+   var controlArray = ConControl.getRange('A2:M2').getValues();
+   verboseFlag = controlArray[0][11];
+   descreetFlag = controlArray[0][12];
 
-   let retryCount = 0;
-   let ss;
+   //Check if process is operational
+   if(controlArray[0][0] == false){
+     if(verboseFlag === true) {
+       console.log('processQueue not operational.')
+     };
+     lock.releaseLock();
+     return;
+   }
 
-   while (retryCount < MAX_RETRIES) {
-     try {
-       lock = LockService.getScriptLock();
-       // Aumentar el timeout del lock a 5 segundos
-       if (!lock.tryLock(5000)) {
-         console.log('Otro proceso está ejecutándose');
-         return;    
-       }
+   //Check if it is running time
+   var now = Utilities.formatDate(new Date(), timezone, "yyyy-MM-dd HH:mm:ss");
 
-       //Check if service enabled 
-       ss = SpreadsheetApp.openById(allIDs['controlID']);
-       break; // Si tiene éxito, salir del bucle
-       
-     } catch (e) {
-       retryCount++;
-       if (retryCount === MAX_RETRIES) {
-         console.error('Failed to access spreadsheet after ' + MAX_RETRIES + ' attempts: ' + e.toString());
-         throw e;
-       }
-       // Esperar antes de reintentar (tiempo exponencial)
-       Utilities.sleep(Math.pow(2, retryCount) * 1000);
+   if(controlArray[0][9]>controlArray[0][10]) {
+     //Check if its already 6 minutes blocked considering next run
+     var auxTime = controlArray[0][1];
+     auxTime.setMinutes(auxTime.getMinutes() + 6);
+     var nextRunPlus = Utilities.formatDate(auxTime, timezone, "yyyy-MM-dd HH:mm:ss");
+     //Its Ok
+     if (nextRunPlus > now) {
+       if(verboseFlag === true) {
+         console.log('Another thread of processQueue already running');
+       };
+       lock.releaseLock();
+       return;
+     } else {
+       if(verboseFlag === true) {
+         console.log('Process next runtime reestablish');
+       };
+       //Block another thread
+       var nextRun = new Date();
+       auxTime= nextRun.getMinutes() + 6;
+       nextRun.setMinutes(auxTime);
+       ConControl.getRange(2,2).setValue(nextRun);
      }
    }
 
+   var nextRun = Utilities.formatDate(controlArray[0][1], timezone, "yyyy-MM-dd HH:mm:ss");
+   if( nextRun>now ) {
+     if(verboseFlag === true) {
+       console.log('processQueue on time. It will run '+controlArray[0][1])
+     };
+     lock.releaseLock();
+     return;
+   }
+
+   //Set Last check begin
+   ConControl.getRange(2,10).setValue(now);
+   var scriptProperties = PropertiesService.getScriptProperties();
+   SpreadsheetApp.flush();
+
    try {
-     ConControl = ss.getSheetByName("CON-Control");
-     var controlArray = ConControl.getRange('A2:M2').getValues();
-     verboseFlag = controlArray[0][11];
-     descreetFlag = controlArray[0][12];
+     //Open CON-TaskCurrent
+     ConTask = ss.getSheetByName("CON-TaskCurrent");
+     var ConTaskEnd = ConTask.getLastRow();
+     var ConTaskData = ConTask.getRange(2, 1, ConTaskEnd, ConTask.getLastColumn()); 
+     var ConTaskValues = ConTaskData.getValues();
+     var ConTaskNDX = ConTaskValues.map(function(r){ return r[6]; });
+     //Load and save las case in Cache
+     var lastRow = 0;
+     var FirstPending = ConTaskNDX.indexOf("01 Pending", lastRow);
+     var FirstRetry = ConTaskNDX.indexOf("04 Retry", lastRow);     
 
-     //Check if process is operational
-     if(controlArray[0][0] == false){
-       if(verboseFlag === true) {
-         console.log('processQueue not operational.')
-       };
-       return;
-     }
+     //Something to process 
+     if(FirstPending !== -1 || FirstRetry !== -1) {
 
-     //Check if it is running time
-     var now = Utilities.formatDate(new Date(), timezone, "yyyy-MM-dd HH:mm:ss");
-
-     if(controlArray[0][9]>controlArray[0][10]) {
-       //Check if its already 6 minutes blocked considering next run
-       var auxTime = controlArray[0][1];
-       auxTime.setMinutes(auxTime.getMinutes() + 6);
-       var nextRunPlus = Utilities.formatDate(auxTime, timezone, "yyyy-MM-dd HH:mm:ss");
-       //Its Ok
-       if (nextRunPlus > now) {
-         if(verboseFlag === true) {
-           console.log('Another thread of processQueue already running');
-         };
-         return;
+       if((FirstPending < FirstRetry || FirstRetry === -1) && FirstPending != -1) {
+         var ConTaskBegin = FirstPending; 
        } else {
-         if(verboseFlag === true) {
-           console.log('Process next runtime reestablish');
+         var ConTaskBegin = FirstRetry;
+       }
+
+       //Check if there is a DWO change to prioritize
+       let onlyDWOProcess = false;
+       //Begin loop
+       for (var iTask = ConTaskBegin; iTask < ConTaskEnd - 1; iTask++) {
+         // Check for pending / Continue if 02 Incorporated or 03 Inhibited
+         if( ConTaskValues[iTask][6]!="01 Pending" && ConTaskValues[iTask][6]!="04 Retry" ) {continue;}
+         // If repeated key, discarded
+         if((iTask >0 && iTask - 1 >= ConTaskBegin) || ConTaskValues[iTask][1]=="") {
+           if((ConTaskValues[iTask][0]==ConTaskValues[iTask - 1][0] && ConTaskValues[iTask][1]==ConTaskValues[iTask - 1][1] && ConTaskValues[iTask - 1][7]=="") || ConTaskValues[iTask][1]=="") {
+             continue;
+           }
+         }
+         if (ConTaskValues[iTask][0]==="DWO") {
+           onlyDWOProcess = true;
+           if(verboseFlag === true) {
+             console.log('DWO prioritized run');
+           };
+           break;
+         }
+       }
+
+       //Begin loop
+       for (var iTask = ConTaskBegin; iTask < ConTaskEnd - 1; iTask++) {
+         // Verificar tiempo de ejecución
+         if (Date.now() - START_TIME > MAX_EXECUTION_TIME) {
+           if(verboseFlag === true) {
+             console.log('Maximum execution time reached, stopping process');
+           }
+           break;
+         }
+         
+         // Check for pending / Continue if 02 Incorporated or 03 Inhibited
+         if( ConTaskValues[iTask][6]!="01 Pending" && ConTaskValues[iTask][6]!="04 Retry") {continue;}
+
+         // If only DWO process
+         if (onlyDWOProcess === true && ConTaskValues[iTask][0]!="DWO") {
+           continue;
+         }
+       
+         // Saves track info
+         ConTask.getRange(iTask + 2,8).setValue(now); 
+
+         // If repeated key, discarded
+         if((iTask >0 && iTask - 1 >= ConTaskBegin) || ConTaskValues[iTask][1]=="") {
+           if((ConTaskValues[iTask][0]==ConTaskValues[iTask - 1][0] && ConTaskValues[iTask][1]==ConTaskValues[iTask - 1][1] && ConTaskValues[iTask - 1][7]=="") || ConTaskValues[iTask][1]=="") {
+             ConTask.getRange(iTask + 2,7).setValue("05 Discarded");
+             continue;
+           }
+         }
+
+         //Current case
+         var furtherAction = DataLoad(ConTaskValues[iTask][3],ConTaskValues[iTask][0], ConTaskValues[iTask][1]);
+
+         if(furtherAction=="Discarded"){
+           ConTask.getRange(iTask + 2,7).setValue("05 Discarded");
+           continue;
+         }
+
+         // If current = 04 Retry, save in comment
+         var retryNumber = scriptProperties.getProperty('retryNumber');
+         if( ConTaskValues[iTask][6]==="04 Retry" || (retryNumber != null && retryNumber != "" )) {
+           // Previous error
+           retryNumber = parseInt(retryNumber);
+           var errorMSG = scriptProperties.getProperty('errorMSG');
+           if (isNaN(retryNumber)) {retryNumber = "1"; scriptProperties.setProperty('retryNumber', retryNumber);errorMSG="";};
+           scriptProperties.setProperty('retryNumber', retryNumber);
+           ConTask.getRange(iTask + 2,9).setValue("04 Retry ("+retryNumber+") "+errorMSG);
+         } else {
+           // Mark as 04 Retry just in halt case
+           ConTask.getRange(iTask + 2,7).setValue("04 Retry");
          };
-         //Block another thread
-         var nextRun = new Date();
-         auxTime= nextRun.getMinutes() + 6;
-         nextRun.setMinutes(auxTime);
-         ConControl.getRange(2,2).setValue(nextRun);
-       }
-     }
 
-     var nextRun = Utilities.formatDate(controlArray[0][1], timezone, "yyyy-MM-dd HH:mm:ss");
-     if( nextRun>now ) {
-       if(verboseFlag === true) {
-         console.log('processQueue on time. It will run '+controlArray[0][1])
-       };
-       return;
-     }
-
-     //Set Last check begin
-     ConControl.getRange(2,10).setValue(now);
-     var scriptProperties = PropertiesService.getScriptProperties();
-     SpreadsheetApp.flush();
-
-     try {
-       //Open CON-TaskCurrent
-       ConTask = ss.getSheetByName("CON-TaskCurrent");
-       var ConTaskEnd = ConTask.getLastRow();
-       // Asegurarse de que ConTaskEnd sea al menos 2 para evitar arrays vacíos
-       if (ConTaskEnd < 2) {
          if(verboseFlag === true) {
-           console.log('No tasks to process');
-         }
-         // Actualizar la columna K para indicar que el proceso ha terminado
-         ConControl.getRange(2,11).setValue(Utilities.formatDate(new Date(), timezone, timestamp_format));
-         return;
-       }
-       
-       var ConTaskData = ConTask.getRange(2, 1, ConTaskEnd - 1, ConTask.getLastColumn()); 
-       var ConTaskValues = ConTaskData.getValues();
-       var ConTaskNDX = ConTaskValues.map(function(r){ return r[6]; });
-       //Load and save las case in Cache
-       var lastRow = 0;
-       var FirstPending = ConTaskNDX.indexOf("01 Pending", lastRow);
-       var FirstRetry = ConTaskNDX.indexOf("04 Retry", lastRow);     
-       var onlyDWOProcess=false;
-       //Something to process 
-       if(FirstPending !== -1 || FirstRetry !== -1) {
-         //Check if there is a DWO to process
-         
-         // Buscar el primer DWO pendiente
-         for (var i = FirstPending; i < ConTaskEnd - 1; i++) {
-           if ((ConTaskValues[i][6] == "01 Pending" || ConTaskValues[i][6] == "04 Retry") && 
-                ConTaskValues[i][0] === "DWO") {
-              FirstPending = i;
-              onlyDWOProcess=true;
-              BATCH_SIZE=999;
-             break;
-           }
+           console.log("Process: "+iTask+" // "+ConTaskValues[iTask][3]+" // "+ConTaskValues[iTask][0]+" // Key: "+ConTaskValues[iTask][1]+ "//"+ ConTaskValues[iTask][8] )
          }
 
-         //Procesar en lotes más pequeños
-         for (var iTask = FirstPending; iTask < ConTaskEnd - 1; iTask += BATCH_SIZE) {
-           // Verificar tiempo límite con más margen
-           if (Date.now() - START_TIME > MAX_EXECUTION_TIME) {
-             if(verboseFlag === true) {
-               console.log('Tiempo máximo de ejecución alcanzado - deteniendo proceso');
+         // PROCESS BEGIN
+         var variationResult = ObtainVariation(ConTaskValues[iTask]);
+
+         if( variationResult["variationStatus"] === "unchanged" ) {
+           ConTask.getRange(iTask + 2,7).setValue("06 Unchanged");
+           continue;
+         } else if( variationResult["variationStatus"] === "source missed key" ) {
+           ConTask.getRange(iTask + 2,7).setValue("07 Source missed key");
+           continue;
+         } else {
+           //Recording process
+           if(variationResult["logAddHTML"] && variationResult["logAddHTML"] !== "" && 
+              (descreetFlag==false || ConTaskValues[iTask][5]!="appsheet@mediaaccesscompany.com")) {
+             //Log
+             logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 7).setValues([
+               [
+                 ConTaskValues[iTask][1],
+                 ConTaskValues[iTask][2],
+                 ConTaskValues[iTask][3]+" / "+ConTaskValues[iTask][0],  
+                 ConTaskValues[iTask][5],
+                 variationResult["logAddHTML"] || "",
+                 variationResult["logAddPlain"] || "",
+                 variationResult["variationCode"] || ""
+               ]
+             ]);
+
+             //Source update Log
+             if(variationResult["sourceData"] && variationResult["sourceData"][taskColLog] && 
+                variationResult["sourceData"][taskColLog]!="") {
+               let aux = variationResult["sourceData"][taskColLog];
+               let columnIndex = Math.max(1, taskColLog+1);
+               sourceSheet.getRange(sourceRow+2, columnIndex).setValue(aux);
              }
-             // Actualizar el estado antes de salir
-             var nextRun = new Date();
-             nextRun.setMinutes(nextRun.getMinutes() + 2);
-             ConControl.getRange(2,2).setValue(nextRun);
-             ConControl.getRange(2,11).setValue(Utilities.formatDate(new Date(), timezone, timestamp_format));
-             return;
+             // If comment
+             if(variationResult["cleanComment"] && variationResult["cleanComment"] > -1) {
+               let columnIndex = Math.max(1, variationResult["cleanComment"]+1);
+               sourceSheet.getRange(sourceRow+2, columnIndex).setValue("");
+             }
            }
+           let aux = [variationResult["sourceData"] || []];
            
-           // Obtener el rango del lote actual y filtrarlo si es necesario
-           let currentBatch = ConTaskValues.slice(iTask, iTask + BATCH_SIZE);
-           if (onlyDWOProcess) {
-             // Filtrar para incluir solo casos DWO
-             currentBatch = currentBatch.filter(task => task[0] === "DWO");
+           if( variationResult["variationStatus"] === "append" ) {
+             //New witness
+             witnessSheet.appendRow(aux[0]);
+           } else {
+             //Witness overwrite with Source
+             // Asegurar que aux[0].length sea al menos 1
+             let columnCount = Math.max(1, aux[0].length);
+             witnessSheet.getRange(witnessRow+2, 1, 1, columnCount).setValues(aux);
+           //            witnessSheet.getRange(witnessRow+2,1,1, witnessSheet.getLastColumn()).setValues(aux);
            }
 
-           // Procesar el lote ordenado
-           for (const task of currentBatch) {
-             // Verificar tiempo de ejecución
-             if (Date.now() - START_TIME > MAX_EXECUTION_TIME) {
-               if(verboseFlag === true) {
-                 console.log('Maximum execution time reached, stopping process');
-               }
-               break;
-             }
-             
-             const j = ConTaskValues.indexOf(task);
-             
-             // Check for pending / Continue if 02 Incorporated or 03 Inhibited
-             if( ConTaskValues[j][6]!="01 Pending" && ConTaskValues[j][6]!="04 Retry") {continue;}
+           //DWO Status changed
+           ConTask.getRange(iTask + 2,7).setValue("02 Incorporated");
+         }
          
-             // Saves track info
-             ConTask.getRange(j + 2,8).setValue(now); 
-
-             // If repeated key, discarded
-             if((j >0 && j - 1 >= FirstPending) || ConTaskValues[j][1]=="") {
-               if((ConTaskValues[j][0]==ConTaskValues[j - 1][0] && ConTaskValues[j][1]==ConTaskValues[j - 1][1] && ConTaskValues[j - 1][7]=="") || ConTaskValues[j][1]=="") {
-                 ConTask.getRange(j + 2,7).setValue("05 Discarded");
-                 continue;
-               }
-             }
-
-             var forcedStringKey = ConTaskValues[j][1].toString();
-
-             //Current case
-             var furtherAction = DataLoad(ConTaskValues[j][3],ConTaskValues[j][0], forcedStringKey);
-
-             if(furtherAction=="Discarded"){
-               ConTask.getRange(j + 2,7).setValue("05 Discarded");
-               continue;
-             }
-
-             // If current = 04 Retry, save in comment
-             var retryNumber = scriptProperties.getProperty('retryNumber');
-             if( ConTaskValues[j][6]==="04 Retry" || (retryNumber != null && retryNumber != "" )) {
-               // Previous error
-               retryNumber = parseInt(retryNumber);
-               var errorMSG = scriptProperties.getProperty('errorMSG');
-               if (isNaN(retryNumber)) {retryNumber = "1"; scriptProperties.setProperty('retryNumber', retryNumber);errorMSG="";};
-               scriptProperties.setProperty('retryNumber', retryNumber);
-               ConTask.getRange(j + 2,9).setValue("04 Retry ("+retryNumber+") "+errorMSG);
-             } else {
-               // Mark as 04 Retry just in halt case
-               ConTask.getRange(j + 2,7).setValue("04 Retry");
-             };
-
-             if(verboseFlag === true) {
-               console.log("Process: "+j+" // "+ConTaskValues[j][3]+" // "+ConTaskValues[j][0]+" // Key: "+ConTaskValues[j][1]+ "//"+ ConTaskValues[j][8] )
-             }
-
-             // PROCESS BEGIN
-             var variationResult = ObtainVariation(ConTaskValues[j]);
-
-             if( variationResult["variationStatus"] === "unchanged" ) {
-               ConTask.getRange(j + 2,7).setValue("06 Unchanged");
-               continue;
-             } else if( variationResult["variationStatus"] === "source missed key" ) {
-               ConTask.getRange(j + 2,7).setValue("07 Source missed key");
-               continue;
-             } else {
-               //Recording process
-               if(variationResult["logAddHTML"]!="" && (descreetFlag==false || ConTaskValues[j][5]!="appsheet@mediaaccesscompany.com")) {
-                 //Log
-                 logSheet.getRange(logSheet.getLastRow() + 1, 1, 1, 7).setValues([
-                   [
-                     ConTaskValues[j][1],
-                     ConTaskValues[j][2],
-                     ConTaskValues[j][3]+" / "+ConTaskValues[j][0],  
-                     ConTaskValues[j][5],
-                     variationResult["logAddHTML"],
-                     variationResult["logAddPlain"],
-                     variationResult["variationCode"]
-                   ]
-                 ]);
-
-                 //Source update Log
-                 if(variationResult["sourceData"][taskColLog]!="" && taskColLog >= 0) {
-                   let aux = variationResult["sourceData"][taskColLog];
-                   sourceSheet.getRange(sourceRow+2,taskColLog+1).setValue(aux);
-                 }
-                 // If comment
-                 if(variationResult["cleanComment"] > -1) {sourceSheet.getRange(sourceRow+2,variationResult["cleanComment"]+1).setValue("");};
-               }
-               let aux = [variationResult["sourceData"]];
-               
-               if( variationResult["variationStatus"] === "append" ) {
-                 //New witness
-                 witnessSheet.appendRow(aux[0]);
-               } else {
-                 //Witness overwrite with Source
-                 witnessSheet.getRange(witnessRow+2,1,1, aux[0].length).setValues(aux);
-               //            witnessSheet.getRange(witnessRow+2,1,1, witnessSheet.getLastColumn()).setValues(aux);
-               }
-
-               //DWO Status changed
-               ConTask.getRange(j + 2,7).setValue("02 Incorporated");
-             }
-             
-           }
-           
-           // Añadir pausa más corta entre lotes para optimizar el tiempo
-           Utilities.sleep(500);
-           
-           // Forzar flush más frecuente
-           if (iTask % (BATCH_SIZE * 2) === 0) {
-             SpreadsheetApp.flush();
-           }
+         // Añadir pequeña pausa cada X iteraciones para evitar sobrecarga
+         if (iTask % 20 === 0) {
+           Utilities.sleep(1000);
          }
        }
-       // Reset flag of any chance of retry
-       var nullValue = ""; scriptProperties.setProperty('retryNumber', nullValue); scriptProperties.setProperty('errorMSG', nullValue);
-     // Error detection
-     } catch (e) {
-       // Mejorar el registro de errores
-       console.error('Error in processQueue: ' + e.toString());
-       console.error('Stack: ' + e.stack);
-       
-       // Asegurarse de liberar el lock en caso de error
-       if (lock) lock.releaseLock();
-       
-       // Propagar el error
-       throw e;
-     } finally {
-       SpreadsheetApp.flush();
-       lock.releaseLock();
      }
-     
-     var currentTime = Utilities.formatDate(new Date, timezone, "HH:mm");
-     var workdayTimeFrom = controlArray[0][2].toTimeString();
-     var workdayTimeTo = controlArray[0][3].toTimeString();
-
-     var weekday = new Date(); weekday = weekday.getDay(); 
-     if (currentTime > workdayTimeFrom && currentTime< workdayTimeTo && weekday!=6 && weekday!=0 ){
-       var nextTriggerMin = controlArray[0][4];
-     } else {
-       var nextTriggerMin = controlArray[0][5];
-     }
-     //Set Last check timestamp
-     ConControl.getRange(2,2).setValue(nextTriggerMin);
-
-     //Set Last check end
-     nextRun = new Date();
-     let aux2= nextRun.getMinutes() + nextTriggerMin;
-     nextRun.setMinutes(aux2);
-     ConControl.getRange(2,2).setValue(nextRun);
-     ConControl.getRange(2,11).setValue(Utilities.formatDate(new Date(), timezone, timestamp_format));
-
+     // Reset flag of any chance of retry
+     var nullValue = ""; scriptProperties.setProperty('retryNumber', nullValue); scriptProperties.setProperty('errorMSG', nullValue);
+   // Error detection
    } catch (e) {
      // Mejorar el registro de errores
      console.error('Error in processQueue: ' + e.toString());
@@ -447,29 +443,33 @@ function processQueue() {
      // Asegurarse de liberar el lock en caso de error
      if (lock) lock.releaseLock();
      
-     // Asegurarse de actualizar el estado en CON-Control para indicar que el proceso no está bloqueado
-     try {
-       if (ConControl) {
-         ConControl.getRange(2,11).setValue(Utilities.formatDate(new Date(), timezone, timestamp_format));
-       }
-     } catch (updateError) {
-       console.error('Error updating control status: ' + updateError.toString());
-     }
-     
      // Propagar el error
      throw e;
    } finally {
-     // Asegurarse de que el lock siempre se libere, incluso en caso de error
-     try {
-       if (lock && lock.hasLock()) {
-         SpreadsheetApp.flush();
-         lock.releaseLock();
-         console.log('Lock released successfully');
-       }
-     } catch (lockError) {
-       console.error('Error releasing lock: ' + lockError.toString());
-     }
+     SpreadsheetApp.flush();
+     lock.releaseLock();
    }
+   
+   var currentTime = Utilities.formatDate(new Date, timezone, "HH:mm");
+   var workdayTimeFrom = controlArray[0][2].toTimeString();
+   var workdayTimeTo = controlArray[0][3].toTimeString();
+
+   var weekday = new Date(); weekday = weekday.getDay(); 
+   if (currentTime > workdayTimeFrom && currentTime< workdayTimeTo && weekday!=6 && weekday!=0 ){
+     var nextTriggerMin = controlArray[0][4];
+   } else {
+     var nextTriggerMin = controlArray[0][5];
+   }
+   //Set Last check timestamp
+   ConControl.getRange(2,2).setValue(nextTriggerMin);
+
+   //Set Last check end
+   nextRun = new Date();
+   let aux2= nextRun.getMinutes() + nextTriggerMin;
+   nextRun.setMinutes(aux2);
+   ConControl.getRange(2,2).setValue(nextRun);
+   ConControl.getRange(2,11).setValue(Utilities.formatDate(new Date(), timezone, timestamp_format));
+
  } catch (e) {
    // Mejorar el registro de errores
    console.error('Error in processQueue: ' + e.toString());
@@ -487,146 +487,97 @@ function processQueue() {
 //
 /* BUSINESS UTILITIES*/
 function DataLoad(ssAux, sheetNameAux, keyAux) {
-  try {
-    let actionReturn = ""; 
-    let ssAux2 = ""; 
-    let flag = true;
-    let dwoKeyAux = "";
+  let actionReturn = ""; 
+  let ssAux2 = ""; 
+  let flag = true;
+  let dwoKeyAux = "";
 
-    if(inhibitAppend(ssAux, sheetNameAux, keyAux)===false) {
-      actionReturn="Discarded";
-      return actionReturn;
-    }
-
-    //Call for Source
-    LazyLoad(ssAux, sheetNameAux);
-
-    sourceSheet = containerSheet;
-    sourceValues = containerValues;
-    sourceNDX = containerNDX;
-
-    // Validar que labelNDX y labelValues existan y estén inicializados
-    if (!labelNDX || !labelValues) {
-      console.error(`Labels no inicializados para ${sheetNameAux}`);
-      actionReturn = "Discarded";
-      return actionReturn;
-    }
-
-    // Obtain label data con validación
-    labelRow = labelNDX.indexOf(sheetNameAux, 0);
-    
-    if (labelRow === -1) {
-      if(verboseFlag === true) {
-        console.log(`No se encontró configuración de labels para ${sheetNameAux}`);
-      }
-      // Usar configuración por defecto para hojas sin labels específicos
-      taskLabelNames = [];
-      taskLabelActions = [];
-      taskColKey = -1;
-      taskColUser = -1;
-      taskColChange = -1;
-      taskColLog = -1;
-    } else {
-      // Asegurarse de que existan los datos necesarios
-      if (labelValues[labelRow] && labelValues[labelRow + 1]) {
-        taskLabelNames = labelValues[labelRow];
-        taskLabelActions = labelValues[labelRow + 1];
-        
-        taskColKey = taskLabelActions.indexOf("K") - 1;
-        taskColUser = taskLabelNames.indexOf("Last user", 0) - 1; 
-        taskColChange = taskLabelNames.indexOf("Last change", 0) - 1;
-        taskColLog = taskLabelNames.indexOf("LogTrack", 0) - 1;
-      } else {
-        console.error(`Datos de label incompletos para ${sheetNameAux}`);
-        // Usar valores por defecto
-        taskLabelNames = [];
-        taskLabelActions = [];
-        taskColKey = -1;
-        taskColUser = -1;
-        taskColChange = -1;
-        taskColLog = -1;
-      }
-    }
-
-    if(taskColLog<0){
-      var taskColLogMsg="No column log present";
-    } else {
-      var taskColLogMsg=taskColChange.toString();
-    }
-    
-  
-    if(verboseFlag === true) {
-      console.log("Sheet: " + sheetNameAux + " | taskColLog: " + taskColLogMsg + " | labelRow: " + labelRow);
-    }
-    
-    var auxLabel = labelValues[labelRow + 2][0];
-
-    //Check if previous call was equal 
-    if(ssPrevious === ssAux && sheetNamePrevious === sheetNameAux) {return actionReturn;}
-    if( ssAux === "DubAppActive01") {
-      ssAux2 = "DubAppTotal01";
-    } else {
-      if(auxLabel == "[Split]") {
-        let auxRow = sourceNDX.indexOf(keyAux);
-        // Buscar la configuración de la hoja en relacionesHojas
-        let dwoColLetter = relacionesHojas[sheetNameAux].dwoCol;
-        // Convertir letra(s) de columna a número
-        let dwoCol = dwoColLetter.split('')
-          .reduce((acc, c) => (acc * 26) + (c.charCodeAt(0) - 'A'.charCodeAt(0) + 1), 0) - 1;
-        let dwoKeyAux = sourceValues[auxRow][dwoCol];
-
-        LazyLoad("DubAppActive01", "DWO");
-        let activeDWONDX = containerNDX;
-
-        LazyLoad("DubAppTotal01", sheetNameAux);
-        let totalDWOValues = containerValues;
-        let totalDWONDX = containerNDX;
-
-        if(activeDWONDX.indexOf(dwoKeyAux) !== -1 || 
-           (sheetNameAux === 'DWO' && (() => {
-             let dwoRow = totalDWONDX.indexOf(keyAux);
-             return dwoRow !== -1 && totalDWOValues[dwoRow][58] === "(01) On track: DWO";
-           })())
-        ) {
-          ssAux2 = "DubAppActive01";
-        } else {
-          ssAux2 = "DubAppLogs01";
-        }
-      } else {
-        ssAux2 = "DubAppActive01";
-      }
-    };
-
-
-    if (ssAux2!="") {
-      LazyLoad(ssAux2, sheetNameAux);
-      witnessSheet = containerSheet; 
-      witnessValues = containerValues;
-      witnessNDX = containerNDX;
-    }
-
-    //Call for log
-    
-    if(sheetNamePrevious !== sheetNameAux) {
-      sheetNameAux2 = sheetNameAux+"Log";
-      LazyLoad("DubAppLogs01", sheetNameAux2);
-    
-      logSheet = containerSheet;
-      logValues = containerValues;
-      logNDX = containerNDX;
-    }
-
-    //New witness
-    ssPrevious = ssAux;
-    sheetNamePrevious = sheetNameAux;
-    
+  if(inhibitAppend(ssAux, sheetNameAux, keyAux)===false) {
+    actionReturn="Discarded";
     return actionReturn;
-    
-  } catch (error) {
-    console.error(`Error en DataLoad para ${sheetNameAux}: ${error.toString()}`);
-    console.error('Stack: ' + error.stack);
-    return "Discarded";
   }
+
+  //Call for Source
+  LazyLoad(ssAux, sheetNameAux);
+
+  sourceSheet = containerSheet;
+  sourceValues = containerValues;
+  sourceNDX = containerNDX;
+
+  // Obtain label data
+  labelRow = labelNDX.indexOf(sheetNameAux,0);
+  taskLabelNames = labelValues[labelRow];
+  taskLabelActions = labelValues[labelRow + 1];
+  taskColKey = taskLabelActions.indexOf("K") - 1;
+  taskColUser = taskLabelNames.indexOf("Last user", 0) - 1; 
+  taskColChange = taskLabelNames.indexOf("Last change", 0) - 1;
+  taskColLog = taskLabelNames.indexOf("LogTrack", 0) - 1;
+  var auxLabel = labelValues[labelRow + 2][0];
+
+  //Check if previous call was equal 
+  if(ssPrevious === ssAux && sheetNamePrevious === sheetNameAux) {return actionReturn;}
+  if( ssAux === "DubAppActive01") {
+    ssAux2 = "DubAppTotal01";
+  } else {
+    if(auxLabel == "[Split]") {
+      let auxRow = sourceNDX.indexOf(keyAux);
+      // Buscar la configuración de la hoja en relacionesHojas
+      let dwoColLetter = relacionesHojas[sheetNameAux]?.dwoCol || 'A';
+      // Convertir letra(s) de columna a número
+      let dwoCol = dwoColLetter.split('')
+        .reduce((acc, c) => (acc * 26) + (c.charCodeAt(0) - 'A'.charCodeAt(0) + 1), 0) - 1;
+      let dwoKeyAux = sourceValues[auxRow][dwoCol];
+
+      LazyLoad("DubAppActive01", "DWO");
+      let activeDWONDX = containerNDX;
+
+      LazyLoad("DubAppTotal01", sheetNameAux);
+      let totalDWOValues = containerValues;
+      let totalDWONDX = containerNDX;
+
+      if(activeDWONDX.indexOf(dwoKeyAux) !== -1 || 
+         (sheetNameAux === 'DWO' && (() => {
+           let dwoRow = totalDWONDX.indexOf(keyAux);
+           // Verificar que dwoRow sea válido y que totalDWOValues[dwoRow] tenga al menos 59 columnas
+           return dwoRow !== -1 && 
+                  dwoRow < totalDWOValues.length && 
+                  totalDWOValues[dwoRow].length > 58 && 
+                  totalDWOValues[dwoRow][58] === "(01) On track: DWO";
+         })())
+      ) {
+        ssAux2 = "DubAppActive01";
+      } else {
+        ssAux2 = "DubAppLogs01";
+      }
+    } else {
+      ssAux2 = "DubAppActive01";
+    }
+  };
+
+
+  if (ssAux2!="") {
+    LazyLoad(ssAux2, sheetNameAux);
+    witnessSheet = containerSheet; 
+    witnessValues = containerValues;
+    witnessNDX = containerNDX;
+  }
+
+  //Call for log
+  
+  if(sheetNamePrevious !== sheetNameAux) {
+    sheetNameAux2 = sheetNameAux+"Log";
+    LazyLoad("DubAppLogs01", sheetNameAux2);
+  
+    logSheet = containerSheet;
+    logValues = containerValues;
+    logNDX = containerNDX;
+  }
+
+  //New witness
+  ssPrevious = ssAux;
+  sheetNamePrevious = sheetNameAux;
+  
+  return actionReturn;
 }
 
 function ObtainVariation(taskAux) {
@@ -652,6 +603,13 @@ function ObtainVariation(taskAux) {
  sourceRow = sourceNDX.indexOf(aux3); 
  if(sourceRow == -1) {variationAux["variationStatus"]="source missed key"; return variationAux;};
  variationAux["sourceRow"]=sourceRow; 
+ 
+ // Verificar que sourceRow sea válido antes de acceder a sourceValues
+ if (sourceRow < 0 || sourceRow >= sourceValues.length) {
+   variationAux["variationStatus"]="source missed key"; 
+   return variationAux;
+ }
+ 
  var sourceData = sourceValues[sourceRow]; 
  witnessRow = witnessNDX.indexOf(aux3);
  if(witnessRow == -1) {
@@ -667,8 +625,16 @@ function ObtainVariation(taskAux) {
      return variationAux;
    }
  } else {
+   // Verificar que witnessRow sea válido antes de acceder a witnessValues
+   if (witnessRow < 0 || witnessRow >= witnessValues.length) {
+     variationAux["variationStatus"]="witness missed key"; 
+     return variationAux;
+   }
+   
    // Exists in witness
-   var witnessData = witnessValues[witnessRow]; variationAux["witnessData"] = witnessValues[witnessRow]; variationAux["witnessRow"]=witnessRow;
+   var witnessData = witnessValues[witnessRow]; 
+   variationAux["witnessData"] = witnessValues[witnessRow]; 
+   variationAux["witnessRow"]=witnessRow;
 
    //Halt if equal
    if(sourceData == witnessData) {return variationAux;};
@@ -680,7 +646,8 @@ function ObtainVariation(taskAux) {
      if(caseAux == taskColChange) {
        caseAction="DT";
      } else {
-       var caseAction = taskLabelActions[caseAux+1];
+       // Asegurar que caseAux+1 sea un índice válido para taskLabelActions
+       var caseAction = (caseAux+1 < taskLabelActions.length) ? taskLabelActions[caseAux+1] : "X";
      } 
      // Skip if X or Key
      if(caseAction=="K" || caseAction=="X") {continue};
@@ -691,7 +658,9 @@ function ObtainVariation(taskAux) {
        if(caseAction == "DT" || caseAux == taskColChange) {
          // Datetime
          sourceAux = dateHandle(sourceData[caseAux], timezone, timestamp_format);
-         witnessAux = dateHandle(witnessData[caseAux], timezone, timestamp_format);
+         // Verificar que caseAux sea un índice válido para witnessData
+         witnessAux = (witnessData && caseAux < witnessData.length) ? 
+                      dateHandle(witnessData[caseAux], timezone, timestamp_format) : "";
        } else {
          // Date
          sourceAux = dateHandle(sourceData[caseAux], timezone, "dd/MM/yyyy");
@@ -772,28 +741,43 @@ function ObtainVariation(taskAux) {
    }
    // Different Day
    if(variationAux ["variationStatus"] != "append") {
-       sourceAux = dateHandle(sourceData[taskColChange], timezone, "yyyy-MM-dd");
-       witnessAux = dateHandle(witnessData[taskColChange], timezone, "yyyy-MM-dd");
-       if (sourceAux != witnessAux) {      
-         sourceAux = dateHandle(sourceData[taskColChange], timezone, timestamp_format);
+       // Verificar que taskColChange sea un índice válido para sourceData y witnessData
+       if (taskColChange >= 0 && taskColChange < sourceData.length && 
+           witnessData && taskColChange < witnessData.length) {
+         sourceAux = dateHandle(sourceData[taskColChange], timezone, "yyyy-MM-dd");
+         witnessAux = dateHandle(witnessData[taskColChange], timezone, "yyyy-MM-dd");
+         if (sourceAux != witnessAux) {      
+           sourceAux = dateHandle(sourceData[taskColChange], timezone, timestamp_format);
+         } else {
+           sourceAux = dateHandle(sourceData[taskColChange], timezone, "HH:mm:ss");
+         }
        } else {
-         sourceAux = dateHandle(sourceData[taskColChange], timezone, "HH:mm:ss");
+         // Si no son válidos, usar un valor por defecto
+         sourceAux = "Fecha desconocida";
        }
        variationAux["logAddHTML"]= auxHTML +"<small>"+ sourceAux+ "</small></b>" + variationAux["logAddHTML"];
        variationAux["logAddPlain"]= auxPlain + sourceAux +" // " + variationAux["logAddPlain"] + "\n";
    } else {
-     sourceAux = dateHandle(sourceData[taskColChange], timezone, timestamp_format);
+     // Verificar que taskColChange sea un índice válido para sourceData
+     if (taskColChange >= 0 && taskColChange < sourceData.length) {
+       sourceAux = dateHandle(sourceData[taskColChange], timezone, timestamp_format);
+     } else {
+       // Si no es válido, usar un valor por defecto
+       sourceAux = "Fecha desconocida";
+     }
      variationAux["logAddHTML"]= auxHTML +"<small>"+ sourceAux + "</small></b><li>";
      variationAux["logAddPlain"]= auxPlain + sourceAux + "\n";
    }
 
-//console.log(variationAux["logAddHTML"]); /*Borrar*/
-
    //Reset comment
    if( variationAux["cleanComment"] > -1 ) {sourceData[variationAux["cleanComment"]]=""};
    //Add to previous log
-   if(taskColLog>0){
-    sourceData[taskColLog]=sourceData[taskColLog]+variationAux["logAddHTML"];
+   if (taskColLog >= 0 && taskColLog < sourceData.length) {
+     // Si no existe, inicializarlo como cadena vacía
+     if (sourceData[taskColLog] === undefined || sourceData[taskColLog] === null) {
+       sourceData[taskColLog] = "";
+     }
+     sourceData[taskColLog] = sourceData[taskColLog] + variationAux["logAddHTML"];
    }
  }
  variationAux["sourceData"]=sourceData;
@@ -812,6 +796,121 @@ function Llamador() {
  descreetFlag = controlArray[0][12];
  ConTask = ss.getSheetByName("CON-TaskCurrent");
  };
+
+/**
+ * Limpia todos los locks que puedan haber quedado activos por interrupciones inesperadas.
+ * Esta función debe ejecutarse manualmente cuando se detecten problemas con locks persistentes.
+ * 
+ * Realiza las siguientes acciones:
+ * 1. Libera el lock principal del script
+ * 2. Intenta forzar la liberación de cualquier lock persistente
+ * 3. Limpia propiedades de script relacionadas con locks o estados de procesamiento
+ * 4. Restablece el estado de control en la hoja CON-Control
+ * 5. Limpia entradas específicas de la caché del script
+ * 
+ * @example
+ * // Ejecutar manualmente desde el editor de scripts cuando el proceso quede bloqueado
+ * function manualUnlock() {
+ *   clearAllLocks();
+ * }
+ * 
+ * @return {boolean} - true si la operación fue exitosa, false en caso de error
+ */
+function clearAllLocks() {
+  try {
+    console.log('Iniciando liberación de todos los locks...');
+    
+    // Liberar el lock principal del script
+    const scriptLock = LockService.getScriptLock();
+    if (scriptLock.hasLock()) {
+      scriptLock.releaseLock();
+      console.log('Lock principal liberado');
+    }
+    
+    // Intentar forzar la liberación de cualquier lock persistente
+    try {
+      // Crear un nuevo lock y liberarlo inmediatamente para asegurar que no queden locks activos
+      const forceLock = LockService.getScriptLock();
+      forceLock.tryLock(10000); // Intentar obtener un lock con 10 segundos de timeout
+      if (forceLock.hasLock()) {
+        forceLock.releaseLock();
+        console.log('Lock forzado liberado correctamente');
+      }
+    } catch (error) {
+      console.warn(`Error al forzar liberación de lock: ${error.message}`);
+    }
+    
+    // Limpiar propiedades de script que puedan estar relacionadas con locks o estados de procesamiento
+    try {
+      const scriptProperties = PropertiesService.getScriptProperties();
+      
+      // Limpiar propiedades específicas relacionadas con el procesamiento
+      const propertiesToClear = ['retryNumber', 'errorMSG', 'processingStatus'];
+      
+      propertiesToClear.forEach(propKey => {
+        if (scriptProperties.getProperty(propKey)) {
+          scriptProperties.deleteProperty(propKey);
+          console.log(`Propiedad eliminada: ${propKey}`);
+        }
+      });
+      
+      // Opcionalmente, buscar y eliminar otras propiedades relacionadas con locks
+      const allKeys = scriptProperties.getKeys();
+      const lockRelatedKeys = allKeys.filter(key => 
+        key.toLowerCase().includes('lock') || 
+        key.toLowerCase().includes('process') || 
+        key.toLowerCase().includes('retry')
+      );
+      
+      lockRelatedKeys.forEach(key => {
+        scriptProperties.deleteProperty(key);
+        console.log(`Propiedad relacionada con locks eliminada: ${key}`);
+      });
+    } catch (error) {
+      console.warn(`Error al limpiar propiedades de script: ${error.message}`);
+    }
+    
+    // Restablecer el estado de control en la hoja CON-Control
+    try {
+      const ss = SpreadsheetApp.openById(allIDs['controlID']);
+      const ConControl = ss.getSheetByName("CON-Control");
+      
+      // Restablecer el contador de ejecuciones
+      ConControl.getRange(2, 10).setValue(0); // Restablecer Last check begin
+      ConControl.getRange(2, 11).setValue(0); // Restablecer Last check end
+      
+      // Establecer la próxima ejecución para dentro de 1 minuto
+      var nextRun = new Date();
+      nextRun.setMinutes(nextRun.getMinutes() + 1);
+      ConControl.getRange(2, 2).setValue(nextRun);
+      
+      console.log('Estado de control restablecido correctamente');
+    } catch (error) {
+      console.warn(`Error al restablecer estado de control: ${error.message}`);
+    }
+    
+    // Limpiar la caché del script
+    try {
+      const cache = CacheService.getScriptCache();
+      // No podemos limpiar toda la caché directamente, pero podemos invalidar entradas específicas
+      // relacionadas con el procesamiento si las conocemos
+      const cacheKeysToInvalidate = ['processStatus', 'lastRun', 'queueStatus'];
+      
+      cacheKeysToInvalidate.forEach(key => {
+        cache.remove(key);
+        console.log(`Entrada de caché invalidada: ${key}`);
+      });
+    } catch (error) {
+      console.warn(`Error al limpiar caché: ${error.message}`);
+    }
+    
+    console.log('Proceso de liberación de locks completado exitosamente');
+    return true;
+  } catch (error) {
+    console.error('Error al liberar locks:', error.message);
+    return false;
+  }
+}
 
 function uncodeChannelEventType(chainSource, chainWitness) {
   // Cargamos la hoja DWO-ChannelEventType usando LazyLoad
@@ -957,3 +1056,125 @@ function uncodeChannelEventType(chainSource, chainWitness) {
      return -1;
    }
  }
+
+/**
+ * Verifica el estado actual de los locks y propiedades relacionadas con el procesamiento.
+ * Útil para diagnosticar problemas de locks persistentes.
+ * 
+ * Recopila y devuelve información sobre:
+ * 1. Si hay un lock activo en el script
+ * 2. Propiedades de script relacionadas con el procesamiento (retryNumber, errorMSG, etc.)
+ * 3. Estado actual de la hoja de control (CON-Control)
+ * 4. Entradas relevantes en la caché del script
+ * 
+ * @example
+ * // Ejecutar manualmente desde el editor de scripts para diagnosticar problemas
+ * function diagnoseIssues() {
+ *   const status = checkLockStatus();
+ *   console.log(JSON.stringify(status, null, 2));
+ * }
+ * 
+ * @return {Object} - Objeto con información detallada sobre el estado de los locks y propiedades
+ *   - hasScriptLock: {boolean} Indica si hay un lock activo
+ *   - scriptProperties: {Object} Propiedades de script relacionadas con el procesamiento
+ *   - controlSheetStatus: {Object} Estado actual de la hoja de control
+ *   - cacheEntries: {Object} Entradas relevantes en la caché
+ */
+function checkLockStatus() {
+  try {
+    console.log('Verificando estado de locks y propiedades...');
+    
+    const result = {
+      hasScriptLock: false,
+      scriptProperties: {},
+      controlSheetStatus: {},
+      cacheEntries: {}
+    };
+    
+    // Verificar si hay un lock activo
+    try {
+      const scriptLock = LockService.getScriptLock();
+      result.hasScriptLock = scriptLock.hasLock();
+      console.log(`Lock activo: ${result.hasScriptLock}`);
+    } catch (error) {
+      console.warn(`Error al verificar lock: ${error.message}`);
+      result.lockError = error.message;
+    }
+    
+    // Verificar propiedades de script relacionadas con el procesamiento
+    try {
+      const scriptProperties = PropertiesService.getScriptProperties();
+      const propertiesToCheck = ['retryNumber', 'errorMSG', 'processingStatus'];
+      
+      propertiesToCheck.forEach(propKey => {
+        const propValue = scriptProperties.getProperty(propKey);
+        if (propValue) {
+          result.scriptProperties[propKey] = propValue;
+          console.log(`Propiedad ${propKey}: ${propValue}`);
+        }
+      });
+      
+      // Buscar otras propiedades relacionadas con locks
+      const allKeys = scriptProperties.getKeys();
+      const lockRelatedKeys = allKeys.filter(key => 
+        key.toLowerCase().includes('lock') || 
+        key.toLowerCase().includes('process') || 
+        key.toLowerCase().includes('retry')
+      );
+      
+      lockRelatedKeys.forEach(key => {
+        if (!result.scriptProperties[key]) {
+          result.scriptProperties[key] = scriptProperties.getProperty(key);
+          console.log(`Propiedad relacionada con locks ${key}: ${result.scriptProperties[key]}`);
+        }
+      });
+    } catch (error) {
+      console.warn(`Error al verificar propiedades de script: ${error.message}`);
+      result.propertiesError = error.message;
+    }
+    
+    // Verificar estado de la hoja de control
+    try {
+      const ss = SpreadsheetApp.openById(allIDs['controlID']);
+      const ConControl = ss.getSheetByName("CON-Control");
+      const controlValues = ConControl.getRange('A2:M2').getValues()[0];
+      
+      result.controlSheetStatus = {
+        operational: controlValues[0],
+        nextRun: controlValues[1],
+        lastCheckBegin: controlValues[9],
+        lastCheckEnd: controlValues[10],
+        verboseFlag: controlValues[11],
+        descreetFlag: controlValues[12]
+      };
+      
+      console.log('Estado de hoja de control:', JSON.stringify(result.controlSheetStatus));
+    } catch (error) {
+      console.warn(`Error al verificar hoja de control: ${error.message}`);
+      result.controlSheetError = error.message;
+    }
+    
+    // Verificar entradas de caché
+    try {
+      const cache = CacheService.getScriptCache();
+      const cacheKeysToCheck = ['processStatus', 'lastRun', 'queueStatus'];
+      
+      cacheKeysToCheck.forEach(key => {
+        const cacheValue = cache.get(key);
+        if (cacheValue) {
+          result.cacheEntries[key] = cacheValue;
+          console.log(`Entrada de caché ${key}: ${cacheValue}`);
+        }
+      });
+    } catch (error) {
+      console.warn(`Error al verificar caché: ${error.message}`);
+      result.cacheError = error.message;
+    }
+    
+    console.log('Verificación de estado de locks completada');
+    return result;
+  } catch (error) {
+    console.error('Error al verificar estado de locks:', error.message);
+    return { error: error.message };
+  }
+}

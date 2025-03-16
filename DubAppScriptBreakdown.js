@@ -2,16 +2,15 @@
  * Árbol de llamadas de funciones y descripciones:
  * 
  * Main Execution Flow:
- * 1. doPost(e) - Endpoint principal que recibe las solicitudes POST
+ * 1. ScriptUpload() - Función principal de procesamiento
  *    ├── 2. initializeGlobals() - Inicializa variables globales
- *    └── 3. ScriptUpload() - Función principal de procesamiento
- *         ├── 4. OpenSheet() - Abre y carga hojas de cálculo
- *         ├── 5. ScriptBreakdown() - Procesa el script subido
- *         │    ├── 6. ExtractDialogLine() - Extrae diálogos del script
- *         │    └── 7. ExtractCharacter() - Extrae personajes del script
- *         └── 8. schedulePDFWitness() - Programa la generación del PDF
- *              └── 9. asyncPDFWitness() - Ejecuta la generación del PDF
- *                   └── 10. PDFWitness() - Genera el PDF con el desglose
+ *    ├── 3. OpenSheet() - Abre y carga hojas de cálculo
+ *    ├── 4. ScriptBreakdown() - Procesa el script subido
+ *    │    ├── 5. ExtractDialogLine() - Extrae diálogos del script
+ *    │    └── 6. ExtractCharacter() - Extrae personajes del script
+ *    └── 7. schedulePDFWitness() - Programa la generación del PDF
+ *         └── 8. asyncPDFWitness() - Ejecuta la generación del PDF
+ *              └── 9. PDFWitness() - Genera el PDF con el desglose
  * 
  * Helper Functions:
  * - OpenSht() - Abre y filtra hojas de cálculo
@@ -106,6 +105,17 @@ const CONFIG = {
 	BCC_EMAIL: "appsheet@mediaaccesscompany.com"
 };
 
+/**
+ * Función para logging condicional basado en verboseFlag
+ * Solo imprime mensajes si verboseFlag es true o si isImportant es true
+ */
+function conditionalLog(message, isImportant = false) {
+    // Siempre mostrar mensajes marcados como importantes, independientemente de verboseFlag
+    if (isImportant || verboseFlag) {
+        console.log(message);
+    }
+}
+
 function initializeGlobals() {
 	// Variables globales que necesitan ser accesibles en todo el script
 	if (typeof verboseFlag === 'undefined') verboseFlag = CONFIG.verboseFlag;
@@ -115,12 +125,12 @@ function initializeGlobals() {
 
 function call() {
 	ScriptUpload(
-		"Netflix",
-		"EBCF02AD-4035-4738-9272-1CA9FDB6D8DA",
-		"uuJWOLjR",
-		"transcreator03@mediaaccesscompany.com",
-		"Fd6394069",
-		"Netflix - Diary of a Ditched Girl - S01 - Episode 107 - ARS translation author  preliminar "
+		"DCVI",
+		"5A1F389B-E479-49A1-9F4C-87FECF8E3156",
+		"pBVMnTTl",
+		"appsheet@mediaaccesscompany.com",
+		"F613c3753",
+		"DCVI - Big City Greens - S4 - Episode F101 - Dialogue Translation (only finals)"
 	);
 	}
 
@@ -151,432 +161,592 @@ function call4() {
 	}
 
 /**
-* Endpoint de la API web
-*/
-function doPost(e) {
-try {
-	// Inicializar variables globales
-	initializeGlobals();
-	
-	console.log("Iniciando doPost con datos:", e.postData.contents);
-	
-	if (!e || !e.postData || !e.postData.contents) {
-		throw new Error("Datos de entrada inválidos");
-	}
-
-	const data = JSON.parse(e.postData.contents);
-	console.log("Datos parseados:", data);
-	
-	// Validar que todos los campos requeridos estén presentes
-	const requiredFields = ['channelID', 'projectID', 'productionID', 'userID', 'file_ID', 'pdfname'];
-	const missingFields = requiredFields.filter(field => !data[field]);
-	
-	if (missingFields.length > 0) {
-		throw new Error(`Campos requeridos faltantes: ${missingFields.join(', ')}`);
-	}
-
-	console.log("Iniciando ScriptUpload con parámetros:", {
-		channelID: data.channelID,
-		projectID: data.projectID,
-		productionID: data.productionID,
-		userID: data.userID,
-		file_ID: data.file_ID,
-		pdfname: data.pdfname
-	});
-
-	const statusAux = ScriptUpload(
-		data.channelID,
-		data.projectID,
-		data.productionID,
-		data.userID,
-		data.file_ID,
-		data.pdfname
-	);
-
-	console.log("ScriptUpload completado con status:", statusAux);
-
-	const cache = CacheService.getScriptCache();
-	cache.put(data.userID, statusAux, 3600);
-
-	return ContentService.createTextOutput("Success")
-		.setMimeType(ContentService.MimeType.TEXT);
-} catch (error) {
-	console.error("Error en doPost:", error);
-	sendErrorNotification(error, "doPost", {
-		requestData: e ? e.postData.contents : 'No data',
-		globalState: {
-			verboseFlag,
-			fasttrack,
-			appRepository
-		}
-	});
-	return ContentService.createTextOutput("Error: " + error.message)
-		.setMimeType(ContentService.MimeType.TEXT);
-}
-}
-
-/**
 * Función principal de carga de scripts
 */
 function ScriptUpload(channelID, projectID, productionID, userID, file_ID, pdfname) {
-
-console.log(channelID+" / "+projectID+" / "+productionID+" / "+userID+" / "+file_ID);
-// Open sheet
-ssActive = SpreadsheetApp.openById(sheetID);
-isNow = Utilities.formatDate(new Date(), TIMEZONE, TIMESTAMP_FORMAT);
-
-// Load DWO_FIles
-OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
-auxSheetDWO_Files = auxSheet;
-auxCaseDWO_Files = auxFilteredValues;
-auxRowDWO_Files = auxRow + 1;
-eventID = auxCaseDWO_Files[0][3];
-auxVersion = auxCaseDWO_Files[0][14];
-var auxStatus = auxCaseDWO_Files[0][11];
-
-//First round
-if (auxStatus === "(01) Pending: DWOFiles") {
-	var fileName = auxCaseDWO_Files[0][6].replace(appRepository, "");
-
-	// Obtain script file
-	var folder = DriveApp.getFolderById(folderId);
-	var files = folder.getFilesByName(fileName);
-
-	if (files.hasNext()) {
-		var file = files.next();
-		var fileID = file.getId();
-		var resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
-		// Determine status
-		var statusAux;
-		if (resultAux === "" && (fasttrack || (!characterRevisionFlag && !timecodeOutRevisionFlag))) {
-			statusAux = "(99) Completed: DWOFiles";
-		} else {
-			statusAux = characterRevisionFlag && timecodeOutRevisionFlag
-				? "(04) Check pending / New characters & Timecode out: DWOFiles"
-				: characterRevisionFlag
-					? "(02) Check pending / New characters: DWOFiles"
-					: timecodeOutRevisionFlag
-						? "(03) Check pending / Timecode out: DWOFiles"
-						: "(09) Failed: DWOFiles";
-		}
-	} else {
-		resultAux = "File not found: " + fileName;
-		console.log(resultAux);
-		statusAux = "(09) Failed: DWOFiles";
-	}
-} else if (auxStatus === "(05) Complete Upload: DWOFiles") {
-	ReloadDialogLine(file_ID);
-	fasttrack = true;
-	var resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
-	statusAux = "(99) Completed: DWOFiles";
+    console.log(`Iniciando proceso inmediato: ${channelID} / ${projectID} / ${productionID} / ${userID} / ${file_ID}`);
+    
+    try {
+        // Abrir la hoja de cálculo y actualizar el estado a "En proceso"
+        ssActive = SpreadsheetApp.openById(sheetID);
+        isNow = Utilities.formatDate(new Date(), TIMEZONE, TIMESTAMP_FORMAT);
+        
+        // Load DWO_FIles para actualizar el estado
+        OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
+        var auxSheetDWO_Files_temp = auxSheet;
+        var auxRowDWO_Files_temp = auxRow + 1;
+        auxCaseDWO_Files = auxFilteredValues;  
+        
+        // Log estado actual del archivo
+        conditionalLog(`TRAZABILIDAD - Estado actual antes del procesamiento: ${auxCaseDWO_Files[0][11]}, Version: ${auxCaseDWO_Files[0][14]}, EventID: ${auxCaseDWO_Files[0][3]}`);
+        
+        // NO actualizar el estado al principio, solo leer el estado existente
+        // El estado se actualizará al final del procesamiento
+        
+        // Crear una ejecución separada para iniciar el proceso principal
+        // Usar PropertiesService en lugar de CacheService para mayor confiabilidad
+        const props = PropertiesService.getScriptProperties();
+        const jobKey = "ScriptUpload_" + file_ID;
+        
+        // Almacenar los parámetros en PropertiesService
+        props.setProperty(jobKey, JSON.stringify({
+            channelID: channelID,
+            projectID: projectID,
+            productionID: productionID,
+            userID: userID,
+            file_ID: file_ID,
+            pdfname: pdfname,
+            startTime: isNow
+        }));
+        
+        // Configurar un trigger que se ejecute inmediatamente
+        ScriptApp.newTrigger('processScriptUploadFromCache')
+            .timeBased()
+            .after(1000) // 1 segundo de retraso mínimo
+            .create();
+        
+        conditionalLog('Proceso iniciado en background, script retornando inmediatamente', true);
+        
+        // Retornar inmediatamente para que AppSheet no espere
+        return auxCaseDWO_Files[0][11]; // Retornar el estado actual sin modificarlo
+        
+    } catch (error) {
+        console.error('Error al iniciar el proceso:', error);
+        sendErrorNotification(error, 'ScriptUpload', {
+            channelID: channelID,
+            projectID: projectID,
+            productionID: productionID,
+            userID: userID,
+            file_ID: file_ID
+        });
+        return "(09) Failed: DWOFiles - Error: " + error.message;
+    }
 }
 
-//Reapertura forzada
-//dwoCharacterProduction = ssActive.getSheetByName("DWO_CharacterProduction");
-
-if (statusAux === "(99) Completed: DWOFiles") {
-    //Graba Characters ***
-    var currentValue; var updatedValue;
-    let rowsToWrite = []; // Array para acumular filas a escribir
+/**
+* Función que recupera datos de las propiedades del script y ejecuta el procesamiento
+*/
+function processScriptUploadFromCache(e) {
+    // Limpiar el trigger que ejecutó esta función
+    try {
+        // Obtener todos los triggers y buscar el que coincide con el ID actual
+        const allTriggers = ScriptApp.getProjectTriggers();
+        for (let i = 0; i < allTriggers.length; i++) {
+            // Verificar si es el trigger actual
+            if (allTriggers[i].getUniqueId() === e.triggerUid) {
+                // Eliminar el trigger usando el objeto correcto, no el ID
+                ScriptApp.deleteTrigger(allTriggers[i]);
+                break;
+            }
+        }
+    } catch (error) {
+        console.error("Error al eliminar trigger:", error);
+    }
     
-    logOperationStatus('InicioProcesamiento', {
-        totalCharacters: characters.length,
-        version: auxVersion,
-        productionID: productionID
-    });
-
-    for (let i = 0; i < characters.length; i++) {
-        const fila = characters[i]; 
-        if (fila[7] === "0") { continue; }
+    // Buscar todos los trabajos pendientes en las propiedades
+    const props = PropertiesService.getScriptProperties();
+    const allProps = props.getProperties();
+    
+    try {
+        // Obtener todas las claves que comienzan con ScriptUpload_
+        const pendingJobs = Object.keys(allProps)
+            .filter(key => key.startsWith("ScriptUpload_"));
+            
+        if (pendingJobs.length === 0) {
+            conditionalLog("No hay trabajos pendientes en las propiedades");
+            return;
+        }
         
+        conditionalLog(`Se encontraron ${pendingJobs.length} trabajos pendientes`);
+        
+        // Procesar el primer trabajo pendiente
+        const firstJobKey = pendingJobs[0];
         try {
-            if (fila[12] === "Character not present in project: Breakdown_mark") {
-                // Graba DWO_Character con verificación
-                const characterRow = [fila[0], projectID, fila[3], null, null, null, null, null, null, null, fila[8], "(01) Enabled: Generic", fila[10], fila[11], null, null, null, null, null, null, null];
-                dwoCharacter.appendRow(characterRow);
-                SpreadsheetApp.flush();
-                logOperationStatus('CharacterAdded', {
-                    character: fila[3],
-                    characterID: fila[0]
-                });
+            const params = JSON.parse(allProps[firstJobKey]);
+            
+            // Eliminar este trabajo de las propiedades para que no se procese nuevamente
+            props.deleteProperty(firstJobKey);
+            
+            conditionalLog(`Procesando trabajo: ${firstJobKey} - Parámetros: ${JSON.stringify(params)}`);
+            
+            // Procesar este trabajo
+            processScriptUpload(params);
+            
+            conditionalLog("Trabajo procesado exitosamente: " + firstJobKey);
+            
+        } catch (error) {
+            console.error('Error al procesar trabajo desde propiedades:', error);
+            props.deleteProperty(firstJobKey); // Eliminar trabajo con error
+        }
+        
+        // Verificar de nuevo todas las claves tras el procesamiento
+        const remainingJobsKeys = Object.keys(props.getProperties())
+            .filter(key => key.startsWith("ScriptUpload_"));
+        
+        // Si hay más trabajos pendientes, programar otra ejecución
+        if (remainingJobsKeys.length > 0) {
+            conditionalLog(`Quedan ${remainingJobsKeys.length} trabajos pendientes, programando próxima ejecución`);
+            ScriptApp.newTrigger('processScriptUploadFromCache')
+                .timeBased()
+                .after(10000) // 10 segundos entre procesamiento de trabajos
+                .create();
+        } else {
+            conditionalLog("No quedan más trabajos pendientes");
+        }
+    } catch (propError) {
+        console.error("Error al manejar las propiedades:", propError);
+        // Asegurar que siempre se programe el siguiente trigger si hay un error
+        ScriptApp.newTrigger('processScriptUploadFromCache')
+            .timeBased()
+            .after(30000) // 30 segundos si hubo un error
+            .create();
+    }
+}
 
-                control2add.push({
-                    sheet: "DWO_Character",
-                    key: fila[0],
-                    action: "INSERT_ROW",
-                    user: fila[10]
-                });
+/**
+* Función que procesa la carga de scripts
+*/
+function processScriptUpload(params) {
+    try {
+        const channelID = params.channelID;
+        const projectID = params.projectID;
+        const productionID = params.productionID;
+        const userID = params.userID;
+        const file_ID = params.file_ID;
+        const pdfname = params.pdfname;
+        
+        if (!channelID || !projectID || !productionID || !userID || !file_ID) {
+            throw new Error('Parámetros incompletos para processScriptUpload');
+        }
 
-                // Preparar fila para DWO_CharacterProduction
-                var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
-                const productionRow = [productionID + fila[0], fila[0], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID];
-                
-                // Agregar al array de filas a escribir
-                rowsToWrite.push(productionRow);
-                logOperationStatus('RowPrepared', {
-                    character: fila[3],
-                    productionID: productionID,
-                    rowIndex: rowsToWrite.length
-                });
+        conditionalLog(`Ejecutando proceso: ${channelID} / ${projectID} / ${productionID} / ${userID} / ${file_ID}`);
 
-                control2add.push({
-                    sheet: "DWO_CharacterProduction",
-                    key: productionID + fila[0],
-                    action: "INSERT_ROW",
-                    user: fila[10]
-                });
-            } else {
-                // Verifica si ya está creado en DWO_CharacterProduction
-                aux1 = dwoCharacterProductionNDX.indexOf(fila[2]);
-                while (aux1 !== -1 && dwoCharacterProductionData[aux1][2] !== productionID) {
-                    aux1 = dwoCharacterProductionNDX.indexOf(fila[2], aux1 + 1);
-                }
-                
-                if (aux1 === -1) {
-                    //No está creado
-                    var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
-                    const newRow = [productionID + "-" + fila[2], fila[2], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID];
-                    rowsToWrite.push(newRow);
-                    
-                    logOperationStatus('NewCharacterPrepared', {
-                        character: fila[3],
-                        productionID: productionID,
-                        rowIndex: rowsToWrite.length
-                    });
+        // Open sheet (de nuevo, porque esta es una ejecución separada)
+        ssActive = SpreadsheetApp.openById(sheetID);
+        isNow = Utilities.formatDate(new Date(), TIMEZONE, TIMESTAMP_FORMAT);
 
-                    control2add.push({
-                        sheet: "DWO_CharacterProduction",
-                        key: productionID + "-" + fila[2],
-                        action: "INSERT_ROW",
-                        user: fila[10]
-                    });
+        // Inicializar variables globales
+        initializeGlobals();
+
+        // Load DWO_FIles
+        OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
+        auxSheetDWO_Files = auxSheet;
+        auxCaseDWO_Files = auxFilteredValues;
+        auxRowDWO_Files = auxRow + 1;
+        eventID = auxCaseDWO_Files[0][3];
+        auxVersion = auxCaseDWO_Files[0][14];
+        var auxStatus = auxCaseDWO_Files[0][11];
+        var resultAux = "";
+        var statusAux = "";
+
+        conditionalLog(`TRAZABILIDAD - Iniciando processScriptUpload con auxStatus: ${auxStatus}, auxVersion: ${auxVersion}, eventID: ${eventID}`);
+
+        //First round
+        if (auxStatus === "(01) Pending: DWOFiles") {
+            conditionalLog(`TRAZABILIDAD - Entrando en flujo "(01) Pending"`);
+            var fileName = auxCaseDWO_Files[0][6].replace(appRepository, "");
+
+            // Obtain script file
+            var folder = DriveApp.getFolderById(folderId);
+            var files = folder.getFilesByName(fileName);
+
+            if (files.hasNext()) {
+                var file = files.next();
+                var fileID = file.getId();
+                conditionalLog(`TRAZABILIDAD - Iniciando ScriptBreakdown para archivo: ${fileName}, ID: ${fileID}`);
+                resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
+                // Determine status
+                if (resultAux === "" && (fasttrack || (!characterRevisionFlag && !timecodeOutRevisionFlag))) {
+                    statusAux = "(99) Completed: DWOFiles";
                 } else {
-                    //Está creado en proyecto ***
-                    var charProd = dwoCharacterProductionData[aux1];
-                    //Versión FINAL 
-                    if (auxVersion === "Final version: Script_upload_lite") {
-                        //No se grabó la primera vez
-                        if(dwoCharacterProductionData[aux1][7]===""){
-                            // Sobre escribe loops
-                            charProd[5] = fila[7]; // Graba en Planned loops
-                            charProd[22] = ""; // Limpia loops Finales
-                            charProd[3] = ""; // Limpia additional
-                            charProd[6] = ""; // Limpia extra citation
-                            charProd[20] = ""; // Limpia additional loops
-                            charProd[21] = ""; // Limpia additional loops
+                    statusAux = characterRevisionFlag && timecodeOutRevisionFlag
+                        ? "(04) Check pending / New characters & Timecode out: DWOFiles"
+                        : characterRevisionFlag
+                            ? "(02) Check pending / New characters: DWOFiles"
+                            : timecodeOutRevisionFlag
+                                ? "(03) Check pending / Timecode out: DWOFiles"
+                                : "(09) Failed: DWOFiles";
+                }
+                conditionalLog(`TRAZABILIDAD - ScriptBreakdown completado, characterRevisionFlag: ${characterRevisionFlag}, timecodeOutRevisionFlag: ${timecodeOutRevisionFlag}, statusAux: ${statusAux}`);
+            } else {
+                resultAux = "File not found: " + fileName;
+                conditionalLog(resultAux);
+                statusAux = "(09) Failed: DWOFiles";
+            }
+
+        } else if (auxStatus === "(05) Complete Upload: DWOFiles") {
+            conditionalLog(`TRAZABILIDAD - Entrando en flujo "(05) Complete Upload", fasttrack será establecido a true`);
+            ReloadDialogLine(file_ID);
+            fasttrack = true;
+            conditionalLog(`TRAZABILIDAD - Iniciando ScriptBreakdown para Complete Upload con fasttrack: ${fasttrack}`);
+            resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
+            statusAux = "(99) Completed: DWOFiles";
+            conditionalLog(`TRAZABILIDAD - ScriptBreakdown completado para Complete Upload, fasttrack: ${fasttrack}, characterRevisionFlag: ${characterRevisionFlag}, timecodeOutRevisionFlag: ${timecodeOutRevisionFlag}, statusAux forzado a: ${statusAux}`);
+        } else {
+            // Si ya está en algún otro estado, no hacer nada
+            conditionalLog(`TRAZABILIDAD - Saltando procesamiento porque el estado actual es: ${auxStatus}`);
+            return;
+        }
+
+        //Reapertura forzada
+        //dwoCharacterProduction = ssActive.getSheetByName("DWO_CharacterProduction");
+
+        if (statusAux === "(99) Completed: DWOFiles") {
+            conditionalLog(`TRAZABILIDAD - Procesando Characters para estado ${statusAux}, total caracteres: ${characters.length}`);
+            //Graba Characters ***
+            var currentValue; var updatedValue;
+            let rowsToWrite = []; // Array para acumular filas a escribir
+            let characterRowsToWrite = []; // Array para acumular filas de DWO_Character
+            
+            logOperationStatus('InicioProcesamiento', {
+                totalCharacters: characters.length,
+                version: auxVersion,
+                productionID: productionID
+            });
+
+            for (let i = 0; i < characters.length; i++) {
+                const fila = characters[i]; 
+                if (fila[7] === "0") { continue; }
+                
+                try {
+                    if (fila[12] === "Character not present in project: Breakdown_mark") {
+                        // Preparar fila para DWO_Character
+                        const characterRow = [fila[0], projectID, fila[3], null, null, null, null, null, null, null, fila[8], "(01) Enabled: Generic", fila[10], fila[11], null, null, null, null, null, null, null];
+                        characterRowsToWrite.push(characterRow);
+                        
+                        logOperationStatus('CharacterPrepared', {
+                            character: fila[3],
+                            characterID: fila[0]
+                        });
+
+                        control2add.push({
+                            sheet: "DWO_Character",
+                            key: fila[0],
+                            action: "INSERT_ROW",
+                            user: fila[10]
+                        });
+
+                        // Preparar fila para DWO_CharacterProduction
+                        var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
+                        // Usar formato consistente para el ID - siempre con guión
+                        const productionRow = [productionID + "-" + fila[0], fila[0], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID];
+                        
+                        rowsToWrite.push(productionRow);
+                        
+                        logOperationStatus('ProductionRowPrepared', {
+                            character: fila[3],
+                            productionID: productionID,
+                            rowIndex: rowsToWrite.length
+                        });
+
+                        control2add.push({
+                            sheet: "DWO_CharacterProduction",
+                            key: productionID + "-" + fila[0], // Usar el mismo formato con guión
+                            action: "INSERT_ROW",
+                            user: fila[10]
+                        });
+                    } else {
+                        // Verifica si ya está creado en DWO_CharacterProduction
+                        let aux1 = dwoCharacterProductionNDX.indexOf(fila[2]);
+                        // Verificar que caractherID existe y que pertenece a la producción actual
+                        while (aux1 !== -1 && dwoCharacterProductionData[aux1][2] !== productionID) {
+                            aux1 = dwoCharacterProductionNDX.indexOf(fila[2], aux1 + 1);
+                        }
+                        
+                        if (aux1 === -1) {
+                            //No está creado
+                            var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
+                            const newRow = [productionID + "-" + fila[2], fila[2], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID];
+                            rowsToWrite.push(newRow);
+                            
+                            logOperationStatus('NewCharacterPrepared', {
+                                character: fila[3],
+                                productionID: productionID,
+                                rowIndex: rowsToWrite.length,
+                                characterID: fila[2]
+                            });
+
+                            control2add.push({
+                                sheet: "DWO_CharacterProduction",
+                                key: productionID + "-" + fila[2],
+                                action: "INSERT_ROW",
+                                user: fila[10]
+                            });
                         } else {
-                            //
-                            if (!charProd[16].includes("Final loops added: CharacterProduction_Attributes")) {
-                                if(charProd[6] === 1) {
-                                    // Hay retoma creada
-                                    if(charProd[17] === "") {
-                                        //No se grabó todavía : sobre escribe
-                                        charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
-                                        charProd[22] = fila[7]; // sobreescribe loops Finales
-                                        charProd[3] = fila[7]; // sobreescribe additional loops
-                                        charProd[20] = ""; // Limpia additional loops 2
-                                        charProd[21] = ""; // Limpia additional loops 3
-                                    } else {
-                                        //Ya se grabó / Error
-                                        charProd[8] = charProd[8] + "// Error: Retake already completed";
-                                    }
-                                } else if(charProd[6] > 1) {
-                                    // Hay más de una retoma creada / Error
-                                    charProd[8] = charProd[8] + "// Error: More than one retake created";
+                            //Está creado en proyecto ***
+                            var charProd = dwoCharacterProductionData[aux1];
+                            //Versión FINAL 
+                            if (auxVersion === "Final version: Script_upload_lite") {
+                                //No se grabó la primera vez
+                                if(dwoCharacterProductionData[aux1][7]===""){
+                                    // Sobre escribe loops
+                                    charProd[5] = fila[7]; // Graba en Planned loops
+                                    charProd[22] = ""; // Limpia loops Finales
+                                    charProd[3] = ""; // Limpia additional
+                                    charProd[6] = ""; // Limpia extra citation
+                                    charProd[20] = ""; // Limpia additional loops
+                                    charProd[21] = ""; // Limpia additional loops
                                 } else {
-                                    // No hay retoma creada
-                                    charProd[22] = fila[7]; // escribe loops Finales
-                                    charProd[3] = fila[7]; // escribe additional loops
-                                    charProd[6] = 1; // Crea extra citation
-                                    charProd[20] = ""; // Limpia additional loops 2
-                                    charProd[21] = ""; // Limpia additional loops 3
+                                    //
+                                    if (!charProd[16].includes("Final loops added: CharacterProduction_Attributes")) {
+                                        if(charProd[6] === 1) {
+                                            // Hay retoma creada
+                                            if(charProd[17] === "") {
+                                                //No se grabó todavía : sobre escribe
+                                                charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
+                                                charProd[22] = fila[7]; // sobreescribe loops Finales
+                                                charProd[3] = fila[7]; // sobreescribe additional loops
+                                                charProd[20] = ""; // Limpia additional loops 2
+                                                charProd[21] = ""; // Limpia additional loops 3
+                                            } else {
+                                                //Ya se grabó / Error
+                                                charProd[8] = charProd[8] + "// Error: Retake already completed";
+                                            }
+                                        } else if(charProd[6] > 1) {
+                                            // Hay más de una retoma creada / Error
+                                            charProd[8] = charProd[8] + "// Error: More than one retake created";
+                                        } else {
+                                            // No hay retoma creada
+                                            charProd[22] = fila[7]; // escribe loops Finales
+                                            charProd[3] = fila[7]; // escribe additional loops
+                                            charProd[6] = 1; // Crea extra citation
+                                            charProd[20] = ""; // Limpia additional loops 2
+                                            charProd[21] = ""; // Limpia additional loops 3
+                                        }
+                                    } else {
+                                    //Es reprocesamiento
+                                        // Variaron los loops
+                                        if(charProd[5] !== fila[7]) {
+                                            //No se grabó todavía
+                                            if(charProd[17] === "") {
+                                                //Sobre escribe loops
+                                                charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
+                                                charProd[3] = fila[7]; // sobreescribe loops Finales
+                                                charProd[22] = fila[7]; // sobreescribe loops Finales
+                                                charProd[20] = ""; // Limpia additional loops 2
+                                                charProd[21] = ""; // Limpia additional loops 3
+                                            } else {
+                                                //Ya se grabó
+                                                charProd[8] = charProd[8] + "// Error: Retake already completed";
+                                            }
+                                        } else {
+                                            continue;
+                                        }
+                                    }
                                 }
+                                // Preparar todos los valores a actualizar
+                                let currentValue = charProd[16];
+                                let attributesToAdd = [
+                                    "Check pending: CharacterProduction_Attributes",
+                                    "Final loops added: CharacterProduction_Attributes"
+                                ];
+                                
+                                // Construir el string de atributos
+                                let attributes = currentValue || "";
+                                attributesToAdd.forEach(attr => {
+                                    if (!attributes.includes(attr)) {
+                                        attributes = attributes ? `${attributes} , ${attr}` : attr;
+                                    }
+                                });
+
+                                // Actualizar status si es necesario
+                                if (charProd[9] === "(04) Dismissed: DWOCharacterProduction") {
+                                    charProd[9] = "(01) Recording pending: DWOCharacterProduction";
+                                    charProd[8] = charProd[8] + "// Dissmissed case reopened";
+                                    const checkPendingAttr = "Check pending: CharacterProduction_Attributes";
+                                    
+                                    if (!attributes.includes(checkPendingAttr)) {
+                                        attributes = attributes ? `${attributes} , ${checkPendingAttr}` : checkPendingAttr;
+                                    }
+                                }
+                                charProd[16]=attributes;
                             } else {
-                            //Es reprocesamiento
+                                //Versión preliminar reprocesada
                                 // Variaron los loops
                                 if(charProd[5] !== fila[7]) {
-                                    //No se grabó todavía
-                                    if(charProd[17] === "") {
+                                    //Todavía no se grabó
+                                    if(charProd[7] === "") {
                                         //Sobre escribe loops
-                                        charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
-                                        charProd[3] = fila[7]; // sobreescribe loops Finales
-                                        charProd[22] = fila[7]; // sobreescribe loops Finales
-                                        charProd[20] = ""; // Limpia additional loops 2
-                                        charProd[21] = ""; // Limpia additional loops 3
+                                        charProd[5] = fila[7]; // Graba en Planned loops
+                                        charProd[22] = ""; // Limpia loops Finales
+                                        charProd[3] = ""; // Limpia additional
+                                        charProd[6] = ""; // Limpia extra citation
+                                        charProd[20] = ""; // Limpia additional loops
+                                        charProd[21] = ""; // Limpia additional loops
                                     } else {
                                         //Ya se grabó
-                                        charProd[8] = charProd[8] + "// Error: Retake already completed";
+                                        charProd[8] = charProd[8] + "// Error: Loops changed ("+fila[7]+ ") and recording already completed";
+                                        charProd[16]="Check pending: CharacterProduction_Attributes , "+charProd[16];
                                     }
                                 } else {
                                     continue;
                                 }
                             }
+                        
+                            // Agregar a rowsToWrite en lugar de escribir directamente
+                            rowsToWrite.push(charProd);
                         }
-						// Preparar todos los valores a actualizar
-						let currentValue = charProd[16];
-						let attributesToAdd = [
-							"Check pending: CharacterProduction_Attributes",
-							"Final loops added: CharacterProduction_Attributes"
-						];
-						
-						// Construir el string de atributos
-						let attributes = currentValue || "";
-						attributesToAdd.forEach(attr => {
-							if (!attributes.includes(attr)) {
-								attributes = attributes ? `${attributes} , ${attr}` : attr;
-							}
-						});
-	
-						// Actualizar status si es necesario
-						if (charProd[9] === "(04) Dismissed: DWOCharacterProduction") {
-							charProd[9] = "(01) Recording pending: DWOCharacterProduction";
-							charProd[8] = charProd[8] + "// Dissmissed case reopened";
-							const checkPendingAttr = "Check pending: CharacterProduction_Attributes";
-							
-							if (!attributes.includes(checkPendingAttr)) {
-							attributes = attributes ? `${attributes} , ${checkPendingAttr}` : checkPendingAttr;
-							}
-						}
-						charProd[16]=attributes;
-                    } else{
-						//Versión preliminar reprocesada
-						// Variaron los loops
-						if(charProd[5] !== fila[7]) {
-							//Todavía no se grabó
-							if(charProd[7] === "") {
-								//Sobre escribe loops
-								charProd[5] = fila[7]; // Graba en Planned loops
-								charProd[22] = ""; // Limpia loops Finales
-								charProd[3] = ""; // Limpia additional
-								charProd[6] = ""; // Limpia extra citation
-								charProd[20] = ""; // Limpia additional loops
-								charProd[21] = ""; // Limpia additional loops
-							} else {
-								//Ya se grabó
-								charProd[8] = charProd[8] + "// Error: Loops changed ("+fila[7]+ ") and recording already completed";
-								charProd[16]="Check pending: CharacterProduction_Attributes , "+charProd[16];
-							}
-						} else {
-							continue;
-						}
-					}
-                   
-                    // 3. Grabar la matriz actualizada
-                    dwoCharacterProduction.getRange(aux1 + 2, 1, 1, charProd.length).setValues([charProd]);
-                    SpreadsheetApp.flush();
+                    }
+                } catch (error) {
+                    logOperationStatus('ErrorProcesamiento', {
+                        character: fila[3],
+                        error: error.toString(),
+                        stack: error.stack
+                    });
+                    throw error;
                 }
             }
-        } catch (error) {
-            logOperationStatus('ErrorProcesamiento', {
-                character: fila[3],
-                error: error.toString(),
-                stack: error.stack
-            });
-            throw error;
-        }
-    }
-    
-    // Escribir todas las filas acumuladas
-    if (rowsToWrite.length > 0) {
-        let retryCount = 0;
-        const maxRetries = 3;
-        let writeSuccess = false;
-        
-        logOperationStatus('InicioEscrituraLote', {
-            totalRows: rowsToWrite.length,
-            columnas: rowsToWrite[0].length
-        });
-        
-        while (!writeSuccess && retryCount < maxRetries) {
-            try {
-                const startRow = dwoCharacterProduction.getLastRow() + 1;
-                dwoCharacterProduction.getRange(startRow, 1, rowsToWrite.length, rowsToWrite[0].length)
-                    .setValues(rowsToWrite);
-                SpreadsheetApp.flush();
-                writeSuccess = true;
+            
+            // Escribir todas las filas acumuladas en DWO_Character
+            if (characterRowsToWrite.length > 0) {
+                let retryCount = 0;
+                const maxRetries = 3;
+                let writeSuccess = false;
                 
-                logOperationStatus('EscrituraLoteExitosa', {
-                    filaInicio: startRow,
-                    totalFilas: rowsToWrite.length,
-                    intento: retryCount + 1
-                });
-            } catch (error) {
-                retryCount++;
-                logOperationStatus('ErrorEscrituraLote', {
-                    intento: retryCount,
-                    error: error.toString(),
-                    filaInicio: dwoCharacterProduction.getLastRow() + 1
-                });
-                
-                if (retryCount === maxRetries) {
-                    throw new Error(`Fallo en escritura en lote después de ${maxRetries} intentos: ${error}`);
+                while (!writeSuccess && retryCount < maxRetries) {
+                    try {
+                        const startRow = dwoCharacter.getLastRow() + 1;
+                        dwoCharacter.getRange(startRow, 1, characterRowsToWrite.length, characterRowsToWrite[0].length)
+                            .setValues(characterRowsToWrite);
+                        writeSuccess = true;
+                        
+                        logOperationStatus('EscrituraCharacterExitosa', {
+                            filaInicio: startRow,
+                            totalFilas: characterRowsToWrite.length,
+                            intento: retryCount + 1
+                        });
+                    } catch (error) {
+                        retryCount++;
+                        logOperationStatus('ErrorEscrituraCharacter', {
+                            intento: retryCount,
+                            error: error.toString()
+                        });
+                        
+                        if (retryCount === maxRetries) {
+                            throw new Error(`Fallo en escritura de DWO_Character después de ${maxRetries} intentos: ${error}`);
+                        }
+                        Utilities.sleep(1000 * retryCount);
+                    }
                 }
-                Utilities.sleep(1000 * retryCount);
+            }
+            
+            // Escribir todas las filas acumuladas en DWO_CharacterProduction
+            if (rowsToWrite.length > 0) {
+                let retryCount = 0;
+                const maxRetries = 3;
+                let writeSuccess = false;
+                
+                while (!writeSuccess && retryCount < maxRetries) {
+                    try {
+                        const startRow = dwoCharacterProduction.getLastRow() + 1;
+                        dwoCharacterProduction.getRange(startRow, 1, rowsToWrite.length, rowsToWrite[0].length)
+                            .setValues(rowsToWrite);
+                        writeSuccess = true;
+                        
+                        logOperationStatus('EscrituraProductionExitosa', {
+                            filaInicio: startRow,
+                            totalFilas: rowsToWrite.length,
+                            intento: retryCount + 1
+                        });
+                    } catch (error) {
+                        retryCount++;
+                        logOperationStatus('ErrorEscrituraProduction', {
+                            intento: retryCount,
+                            error: error.toString()
+                        });
+                        
+                        if (retryCount === maxRetries) {
+                            throw new Error(`Fallo en escritura de DWO_CharacterProduction después de ${maxRetries} intentos: ${error}`);
+                        }
+                        Utilities.sleep(1000 * retryCount);
+                    }
+                }
+            }
+
+            // Configurar el trigger asíncrono para PDFWitness
+            console.log('TRAZABILIDAD - Intentando programar PDFWitness para:', pdfname, file_ID);
+            const scheduled = schedulePDFWitness(pdfname, file_ID);
+            
+            if (!scheduled) {
+                console.error('TRAZABILIDAD - Falló la programación de PDFWitness');
+                statusAux = "(09) Failed: DWOFiles";
+            } else {
+                console.log('TRAZABILIDAD - PDFWitness programado exitosamente');
             }
         }
-    }
-    
-    // Forzar escritura final
-    try {
-        SpreadsheetApp.flush();
-        logOperationStatus('FlushFinal', {
-            status: 'completed',
-            totalRowsProcessed: rowsToWrite.length
-        });
+
+        //Save output
+        //Status y Message en una sola operación
+        // Obtener los valores actuales de las columnas O y P desde auxCaseDWO_Files
+        // Las columnas O y P corresponden a los índices 14 y 15 en el array (0-based)
+        var columnO = auxCaseDWO_Files[0][14]; // Columna O
+        var columnP = auxCaseDWO_Files[0][15]; // Columna P
+
+        conditionalLog(`TRAZABILIDAD - Actualizando estado final a: ${statusAux}, mensaje: ${resultAux}`);
+
+        var updateRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 10, 1, 8);
+        var updateValues = [[
+            resultAux, // columna 10 (J)
+            "", // columna 11 (K)
+            statusAux, // columna 12 (L)
+            userID, // columna 13 (M)
+            isNow, // columna 14 (N)
+            columnO, columnP, // columnas 15-16 (O-P) - Preservar valores existentes
+            channelID + " / " + projectID + " / " + productionID + " / " + userID + " / " + file_ID + " / " + pdfname// columna 17 (Q)
+        ]];
+        updateRange.setValues(updateValues);
+
+        // Procesar los cambios acumulados
+        processControlChanges();
+
+        // En lugar de retornar statusAux, grabarlo en DWO-Event
+        // Buscar en DWO-Event la fila donde columna A tiene el valor de eventID
+        OpenSheet("DWO-Event", 0, "", 0, ssActive);
+        var dwoEventSheet = auxSheet;
+        var dwoEventData = auxValues;
+        var filaEncontrada = -1;
+
+        // Buscar la fila con el eventID en la columna A
+        for (var i = 0; i < dwoEventData.length; i++) {
+            if (dwoEventData[i][0] === eventID) {
+                // i+2 porque: +1 por el índice base 0 y +1 por la fila de encabezado en la hoja
+                filaEncontrada = i + 2;
+                break;
+            }
+        }
+
+        if (filaEncontrada > 0) {
+            // Columna BC es la número 55 (considerando que A es 1, BC sería 55)
+            dwoEventSheet.getRange(filaEncontrada, 55).setValue(statusAux);
+            conditionalLog(`TRAZABILIDAD - Estado actualizado en DWO-Event para eventID: ${eventID} con valor: ${statusAux} en fila ${filaEncontrada}`);
+        } else {
+            console.error(`TRAZABILIDAD - No se encontró el eventID ${eventID} en DWO-Event`);
+        }
+        
+        conditionalLog('TRAZABILIDAD - Proceso de ScriptUpload completado exitosamente');
+        
     } catch (error) {
-        logOperationStatus('ErrorFlushFinal', {
-            error: error.toString(),
-            stack: error.stack
-        });
-        throw error;
+        console.error('TRAZABILIDAD - Error en processScriptUpload:', error);
+        
+        // Intentar actualizar el estado en caso de error, para evitar que quede en "En procesamiento"
+        try {
+            if (auxSheetDWO_Files && auxRowDWO_Files) {
+                var updateRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 12, 1, 1);
+                updateRange.setValue("(09) Failed: DWOFiles - Error: " + error.message.substring(0, 100));
+                
+                // También actualizar la columna de mensajes
+                var msgRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 10, 1, 1);
+                msgRange.setValue("Error: " + error.message.substring(0, 255));
+                
+                conditionalLog(`TRAZABILIDAD - Actualizado estado a error: (09) Failed: DWOFiles - Error: ${error.message.substring(0, 100)}`);
+                // NO actualizar DWO-Event en caso de error, como en la versión original
+            }
+        } catch (err2) {
+            console.error('TRAZABILIDAD - Error al actualizar estado de error:', err2);
+        }
+        
+        sendErrorNotification(error, 'processScriptUpload', params);
     }
-
-    // Configurar el trigger asíncrono para PDFWitness
-    console.log('Intentando programar PDFWitness para:', pdfname, file_ID);
-    const scheduled = schedulePDFWitness(pdfname, file_ID);
-    
-    if (!scheduled) {
-        console.error('Falló la programación de PDFWitness');
-        statusAux = "(09) Failed: DWOFiles";
-    } else {
-        console.log('PDFWitness programado exitosamente');
-    }
-}
-
-//Save output
-//Status
-var celda = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 12);
-celda.setValue(statusAux);
-var celda = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 17);
-celda.setValue(channelID + " / " + projectID + " / " + productionID + " / " + userID + " / " + file_ID);
-//Message
-celda = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 10);
-celda.setValue(resultAux);
-
-// Procesar los cambios acumulados
-processControlChanges();
-
-return statusAux;
-}
-
-function getUserStatus(userID) {
-Logger.log("getUserStatus called with userID: " + userID);
-
-if (!userID) {
-	Logger.log("Error: missing userID");
-	return "Error: missing userID";
-}
-
-var cache = CacheService.getScriptCache();
-var statusAux = cache.get(userID);
-
-if (statusAux) {
-	Logger.log("Data retrieved from cache for userID: " + userID + " - " + statusAux);
-	return statusAux;  // Devolvemos un valor simple
-} else {
-	Logger.log("No data found for userID: " + userID);
-	return "No data found";
-}
 }
 
 function ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID, pdfname) {
@@ -719,7 +889,7 @@ var timecodeIn; var timecodeOut; var flagStatus; var fila; var loopAux; var rowA
 const fileAux = DriveApp.getFileById(fileID);
 var mimeType = fileAux.getMimeType();
 //-----------------------------------------------------------//
-if (mimeType === MimeType.MICROSOFT_WORD) {
+if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || mimeType === "application/msword") {
 
 	var blob = fileAux.getBlob();
 	var fileTemp = Drive.Files.insert({}, blob, { convert: true });
@@ -735,7 +905,7 @@ if (mimeType === MimeType.MICROSOFT_WORD) {
 
 	data = tables[0];
 	timecodeOut = "";
-	flagStatus = true; timecodeOutRevisionFlag = true;
+	flagStatus = true; 
 	// Recorre los data y carga la script
 	for (var i4 = 0; i4 < data.getNumRows(); i4++) {
 		rowAux = data.getRow(i4);
@@ -745,8 +915,7 @@ if (mimeType === MimeType.MICROSOFT_WORD) {
 			fila.push(auxCell.getText());
 		}
 		if (fila[0] === null || fila[0] === "") { 
-			if (fila[4]!=="") {return "The file contains a blank timecode in with dialogues. Please retry"; }
-			else {continue;}
+			continue;
 		}
 
 		fila[0] = fila[0].replace(/\n/g, '').trim();
@@ -812,17 +981,9 @@ if (mimeType === MimeType.MICROSOFT_WORD) {
     for (var i4 = 1; i4 < data.length; i4++) { // Empieza en 1 para saltar la fila de encabezado
         fila = data[i4];
         if (fila[0] === null || fila[0] === "") { 
-            if (fila[4]!=="") {return "The file contains a blank timecode in with dialogues. Please retry"; }
-            else {continue;}
+            continue;
         }
         timecodeIn = String2Seconds(fila[0].substring(0, 8));
-        if (fila[1] === null || fila[1] === "") {
-            timecodeOut = "";
-            flagStatus = true; timecodeOutRevisionFlag = true;
-        } else {
-            timecodeOut = String2Seconds(fila[1].substring(0, 8));
-            flagStatus = false;
-        }
         var dialogue = fila[4];
         if (inhibited.includes(fila[2]?.toUpperCase()) || fila[2] === "") {
             loopAux = "Dismissed";
@@ -841,6 +1002,16 @@ if (mimeType === MimeType.MICROSOFT_WORD) {
             loopAux = "Dismissed";
         }
 
+        if (loopAux != "Dismissed") { 
+			if (fila[1] === null || fila[1] === "") {
+				timecodeOut = "";
+				flagStatus = true; 
+			} else {
+				timecodeOut = String2Seconds(fila[1].substring(0, 8));
+				flagStatus = false;
+			}
+		}
+
         script.push([timecodeIn, timecodeOut, source, dialogue, flagStatus, loopAux, fila[0], fila[1], "", "", fila[4]]);
     }
 
@@ -858,7 +1029,7 @@ function EstimatedTimecode() {
 var fila; var auxLoopTCIn; var auxLoopTCOut; var checkAux;
 for (var k = 0; k < script.length; k++) {
 	fila = script[k];
-	if (script[k][5] === "Dismissed") { continue; }
+	if (fila[5] === "Dismissed") { continue; }
 
 	var palabras = fila[3].split(" ").length; // Cuenta las palabras en la cuarta columna
 	var segundosAAgregar = parseInt(palabras / 1.6); // Calcula los segundos a agregar      
@@ -893,12 +1064,14 @@ for (var k = 0; k < script.length; k++) {
 			if (script[k][2] === script[m][2]) {
 				if (LoopNumber(script[m][0]) != auxLoopTCOut && bypass === false) {
 					checkAux = "Check";
+					if (!fila[1]) {timecodeOutRevisionFlag = true};
 				}
 				break
 			}
 		}
 		if (m === script.length && bypass === false) {
 			checkAux = "Check";
+			if (!fila[1]) {timecodeOutRevisionFlag = true};
 		}
 	}
 
@@ -1043,7 +1216,7 @@ MailApp.SendEmail({
 	to: destinatario,
 	subject: asunto,
 	htmlBody: contenidoPersonalizado,
-	attachments: [archivoPDF.getAs(MimeType.PDF)]
+	attachments: [archivoPDF.getAs("application/pdf")]
 });
 }*/
 
@@ -1423,13 +1596,64 @@ try {
 	const file = folder.createFile(pdf);
 	const docID = file.getId();
 
-	/*    // Load DWO_FIles
-	auxCaseDWO_Files=auxFilteredValues;
-	auxVersion = auxCaseDWO_Files[0][14];
-	var auxSentTo = auxCaseDWO_Files[0][12];
-	if(auxVersion==="Add loops prelim/final difference: Script_upload_lite") {
-	SendEmail(auxSentTo, auxUserName, templateMailID,  docID, "DubApp: Script Breakdown "+auxProduction);
-	}*/
+	// Buscar información en DWO_Files para enviar el email
+	OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
+	if (auxFilteredValues && auxFilteredValues.length > 0) {
+		const dwoFilesData = auxFilteredValues[0];
+		
+		// Extraer los datos necesarios para el email
+		const destinatario = dwoFilesData[4]; // Columna E
+		
+		// Solo enviar el email si hay un destinatario válido
+		if (destinatario && destinatario.trim() !== "") {
+			const remitente = dwoFilesData[12]; // Columna M
+			const nombreDestinatario = "";
+			const idDocumento = "1A32AoqCjHrfSaW35ZapKtolw9JqMR0jnDhCd3c8FOnY";
+			const idPDF = "";
+			const asunto = "DubApp: Script uploaded for " + pdfname;
+			
+			// Preparar el parámetro de versión - quitar el sufijo ": Script_upload_lite"
+			let versionTexto = dwoFilesData[14] || ""; // Columna O
+			versionTexto = versionTexto.replace(/\s*:\s*Script_upload_lite$/, "");
+			
+			const parametros = "Title::DubApp: Script uploaded by translator" + 
+				"||Header::A new script was uploaded for your attention: " + 
+				"||Detail::" + pdfname + 
+				"||Footer::" + versionTexto;
+			
+			const cc = dwoFilesData[5]; // Columna F
+			const bcc = "appsheet@mediaaccesscompany.com";
+			
+			// Enviar el email utilizando la librería SendEmail
+			try {
+				if(verboseFlag) {
+					console.log("Enviando email a: " + destinatario + " sobre: " + pdfname);
+				}
+				
+				// Llamar a la función AppSendEmailX de la librería SendEmail
+				SendEmail.AppSendEmailX(
+					destinatario,
+					remitente,
+					nombreDestinatario,
+					idDocumento,
+					idPDF,
+					asunto,
+					parametros,
+					cc,
+					bcc
+				);
+				
+				if(verboseFlag) {
+					console.log("Email enviado exitosamente");
+				}
+			} catch (emailError) {
+				console.error("Error al enviar email: " + emailError.message);
+				// No lanzamos el error para que continúe la ejecución
+			}
+		} else if(verboseFlag) {
+			console.log("No se envió email porque el destinatario está vacío");
+		}
+	}
 
 } catch (e) {
 	Logger.log('Error: ' + e.message);
@@ -1509,49 +1733,6 @@ Config actual:
 	});
 }
 
-function doGet(e) {
-try {
-	const userID = e.parameter.userID;
-	const status = getUserStatus(userID);
-	const cleanStatus = status.includes(' - ') ? status.split(' - ')[1].trim() : status.trim();
-
-	if (cleanStatus === "(99) Completed: DWOFiles") {
-		const parametrosDecodificados = decodeURIComponent(e.parameter.parametros);
-
-		const emailResult = SendEmail.AppSendEmailX(
-			e.parameter.destinatario,
-			e.parameter.remitente,
-			"",
-			TEMPLATE_MAIL_ID,
-			"",
-			e.parameter.asunto,
-			parametrosDecodificados,
-			e.parameter.cc,
-			BCC_EMAIL
-		);
-
-		return ContentService.createTextOutput(JSON.stringify({
-			status: cleanStatus,
-			emailSent: true,
-			result: emailResult
-		})).setMimeType(ContentService.MimeType.JSON);
-	}
-
-	return ContentService.createTextOutput(JSON.stringify({
-		status: cleanStatus,
-		emailSent: false,
-		reason: "Status no coincide"
-	})).setMimeType(ContentService.MimeType.JSON);
-
-} catch (error) {
-	sendErrorNotification(error, "doGet", e.parameter);
-	return ContentService.createTextOutput(JSON.stringify({
-		status: "Error: " + error.toString(),
-		emailSent: false
-	})).setMimeType(ContentService.MimeType.JSON);
-}
-}
-
 /**
 * Procesa los cambios acumulados en control2add
 */
@@ -1611,7 +1792,7 @@ function schedulePDFWitness(pdfname, file_ID) {
             .after(1000) // 1 segundo
             .create();
             
-        console.log('PDFWitness programado:', params);
+        conditionalLog('PDFWitness programado:', params);
         return true;
 
     } catch (error) {
@@ -1625,7 +1806,7 @@ function schedulePDFWitness(pdfname, file_ID) {
 }
 
 function asyncPDFWitness() {
-    console.log('Iniciando asyncPDFWitness');
+    conditionalLog('Iniciando asyncPDFWitness');
     try {
         // Obtener parámetros guardados
         const props = PropertiesService.getScriptProperties();
@@ -1642,7 +1823,7 @@ function asyncPDFWitness() {
         // Limpiar propiedades después de la ejecución
         props.deleteAllProperties();
         
-        console.log('PDFWitness completado exitosamente');
+        conditionalLog('PDFWitness completado exitosamente');
         
     } catch (error) {
         console.error('Error en asyncPDFWitness:', error);
@@ -1673,6 +1854,8 @@ function cleanupResources() {
 
 // Agregar función helper para logging al inicio del archivo
 function logOperationStatus(operation, details) {
-    const timestamp = new Date().toISOString();
-    console.log(`${timestamp} - ${operation}: ${JSON.stringify(details)}`);
+    if (verboseFlag) {
+        const timestamp = new Date().toISOString();
+        console.log(`${timestamp} - ${operation}: ${JSON.stringify(details)}`);
+    }
 }
