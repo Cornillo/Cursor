@@ -261,9 +261,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
           seconds = parseInt(matches[3], 10);
           const milliseconds = parseInt(matches[4], 10);
           
-          // Convertir milisegundos a frames (para 24fps)
-          // 1 segundo = 24 frames, por lo que 1 frame = 41.666... ms
-          frames = Math.round(milliseconds / 41.666);
+          // Convertir milisegundos a frames para 23.976fps (o aproximadamente 24/1.001)
+          // 1 segundo = 23.976 frames, por lo que 1 frame = 41.708... ms
+          frames = Math.round(milliseconds / 41.708);
         } else {
           if (verboseFlag) Logger.log(`Formato de timecode inválido: ${value}`);
           return null;
@@ -301,9 +301,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
         seconds = Math.max(0, Math.min(seconds, 59));
       }
       
-      // Para STL24.01: Frames deben estar entre 0-23
+      // Para STL23.01: Frames deben estar entre 0-23 (para 23.976fps)
       if (frames < 0 || frames > 23) {
-        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato 24fps...`);
+        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato 23.976fps...`);
         frames = Math.max(0, Math.min(frames, 23));
       }
       
@@ -315,7 +315,7 @@ function validateAndFormatTimecode(value, verboseFlag) {
       return formattedTimecode;
     }
     
-    // Si es un objeto Date, convertir a timecode para 24fps
+    // Si es un objeto Date, convertir a timecode para 23.976fps
     if (value instanceof Date) {
       if (verboseFlag) Logger.log(`Convirtiendo Date a timecode: ${value}`);
       
@@ -323,9 +323,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
       
-      // Para 24fps, cada frame = 41.667ms (1000/24)
+      // Para 23.976fps, cada frame = 41.708ms (1000/23.976)
       const ms = value.getMilliseconds();
-      let frames = Math.round(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
+      let frames = Math.round(ms / 41.708);  // 1000ms / 23.976fps = 41.708ms por frame
       
       // Asegurar que frames esté en el rango 0-23
       if (frames < 0) frames = 0;

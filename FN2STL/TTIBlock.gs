@@ -155,9 +155,9 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
         seconds = parseInt(matches[3], 10);
         const milliseconds = parseInt(matches[4], 10);
         
-        // Convertir milisegundos a frames (para 24fps)
-        // 1 segundo = 24 frames, por lo que 1 frame = 41.666... ms
-        frames = Math.round(milliseconds / 41.666);
+        // Convertir milisegundos a frames para 23.976fps (o aproximadamente 24/1.001)
+        // 1 segundo = 23.976 frames, por lo que 1 frame = 41.708... ms
+        frames = Math.round(milliseconds / 41.708);
       } else {
         if (verboseFlag) Logger.log(`Formato de timecode inválido: ${timecode}`);
         return result;
@@ -179,7 +179,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
       frames = parseInt(parts[3], 10);
     }
     
-    // Validar rangos según especificación EBU para 24fps
+    // Validar rangos según especificación EBU para 23.976fps (tratamos como 24fps)
     if (hours < 0 || hours > 23) {
       if (verboseFlag) Logger.log(`Horas fuera de rango (0-23): ${hours}`);
       hours = Math.max(0, Math.min(hours, 23));
@@ -195,7 +195,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
       seconds = Math.max(0, Math.min(seconds, 59));
     }
     
-    // Para 24fps, frames debe estar entre 0-23
+    // Para 23.976fps (tratado como 24fps), frames debe estar entre 0-23
     if (frames < 0 || frames > 23) {
       if (verboseFlag) Logger.log(`Frames fuera de rango para 24fps (0-23): ${frames}, ajustando a valor válido`);
       frames = Math.max(0, Math.min(frames, 23));

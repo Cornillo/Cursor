@@ -5,7 +5,7 @@
 
 /**
  * Crea el bloque GSI (General Subtitle Information) para el archivo STL
- * con formato PAL (25fps) y mejor compatibilidad con Subtitle Edit
+ * con formato 23.976fps y mejor compatibilidad con Subtitle Edit
  * 
  * @param {Object} options - Opciones para el bloque GSI
  * @param {string} options.programName - Nombre del programa (max 32 chars)
@@ -40,8 +40,8 @@ function createGSIBlock(options) {
   // Código de página de caracteres (CPN) - byte 0-2 - "437" (DOS Latin US)
   writeStringToBuffer(buffer, 0, "437");
   
-  // Código de formato de disco (DFC) - bytes 3-10 - "STL24.01" (24fps)
-  writeStringToBuffer(buffer, 3, "STL24.01");
+  // Código de formato de disco (DFC) - bytes 3-10 - "STL23.01" (23.976fps)
+  writeStringToBuffer(buffer, 3, "STL23.01");
   
   // Código estándar de pantalla (DSC) - byte 11 - "0" (Open subtitling)
   buffer[11] = 0x30; // '0' (Open subtitling)
@@ -89,7 +89,7 @@ function createGSIBlock(options) {
   if (verboseFlag) {
     Logger.log("Bloque GSI creado con éxito");
     Logger.log(`Código de página: 437`);
-    Logger.log(`Formato de disco: STL24.01`);
+    Logger.log(`Formato de disco: STL23.01`);
     Logger.log(`Estándar de pantalla: 0 (Open subtitling)`);
     Logger.log(`Tabla de caracteres: 00 (Latin/CP437)`);
     Logger.log(`Fecha de creación: ${year}${month}${day}`);
