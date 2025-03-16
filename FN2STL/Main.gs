@@ -930,3 +930,42 @@ function probarCorrecciones() {
 function test(){
 probarConversionCompleta("1YlaOCinPTChLLxDF-Ce7mIyu2UAMHqGSKcf4t0yLCM0")
 }
+
+/**
+ * Combina el bloque GSI y los bloques TTI en un solo archivo STL
+ * @param {Uint8Array} gsiBlock - Bloque GSI
+ * @param {Array<Uint8Array>} ttiBlocks - Array de bloques TTI
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Uint8Array} - Archivo STL completo
+ */
+function combineBlocks(gsiBlock, ttiBlocks, verboseFlag) {
+  if (verboseFlag) Logger.log(`Combinando bloques: 1 GSI + ${ttiBlocks.length} TTI`);
+  
+  try {
+    // Actualizar el número de bloques TTI en el bloque GSI
+    const ttiCountStr = ttiBlocks.length.toString().padStart(5, '0');
+    writeStringToBuffer(gsiBlock, ttiCountStr, 238, 5);
+    writeStringToBuffer(gsiBlock, ttiCountStr, 243, 5);
+    
+    // Calcular el tamaño total del archivo
+    const totalSize = gsiBlock.length + (ttiBlocks.length * 128);
+    
+    // Crear un nuevo array para el archivo completo
+    const stlFile = new Uint8Array(totalSize);
+    
+    // Copiar el bloque GSI
+    stlFile.set(gsiBlock, 0);
+    
+    // Copiar cada bloque TTI
+    for (let i = 0; i < ttiBlocks.length; i++) {
+      stlFile.set(ttiBlocks[i], gsiBlock.length + (i * 128));
+    }
+    
+    if (verboseFlag) Logger.log(`Archivo STL creado: ${totalSize} bytes`);
+    
+    return stlFile;
+  } catch (error) {
+    Logger.log(`Error al combinar bloques: ${error.message}`);
+    throw error;
+  }
+}
