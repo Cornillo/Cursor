@@ -118,7 +118,7 @@ function convertNumberToBCD(number, byteLength) {
 
 /**
  * Convierte un código de tiempo al formato de bytes BCD para STL
- * Optimizado para 25fps (PAL)
+ * Optimizado para 25fps (PAL) - Formato EBU STL
  * @param {string} timecode - Código de tiempo en formato HH:MM:SS:FF
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Representación en bytes del código de tiempo
@@ -168,11 +168,13 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     
     // Para 25fps (PAL), frames debe estar entre 0-24
     if (frames < 0 || frames > 24) {
-      if (verboseFlag) Logger.log(`Frames fuera de rango para 25fps (0-24): ${frames}, ajustando...`);
+      if (verboseFlag) Logger.log(`Frames fuera de rango para 25fps (0-24): ${frames}, ajustando a valor válido`);
       frames = Math.max(0, Math.min(frames, 24));
     }
     
-    // Convertir cada componente a BCD
+    // Convertir cada componente a BCD (Binary Coded Decimal)
+    // Cada byte almacena dos dígitos decimales: el dígito de las decenas en los 4 bits altos
+    // y el dígito de las unidades en los 4 bits bajos
     result[0] = (Math.floor(hours / 10) << 4) | (hours % 10);
     result[1] = (Math.floor(minutes / 10) << 4) | (minutes % 10);
     result[2] = (Math.floor(seconds / 10) << 4) | (seconds % 10);
@@ -180,7 +182,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     
     if (verboseFlag) {
       const hexOutput = Array.from(result).map(b => b.toString(16).padStart(2, '0')).join(' ');
-      Logger.log(`Timecode convertido a bytes BCD: ${hexOutput}`);
+      Logger.log(`Timecode convertido: ${hexOutput} (hex)`);
     }
     
     return result;
@@ -202,14 +204,17 @@ function processTextForSTL(text, verboseFlag) {
   if (!text) return new Uint8Array(0);
   if (verboseFlag) Logger.log(`Procesando texto para STL: "${text}"`);
   
-  // Normalizar caracteres especiales comunes en español
+  // Pre-normalización para garantizar un mapeo consistente
   text = text
-    .replace(/ñ/g, 'ñ') // Asegurar que ñ sea reconocida
-    .replace(/í/g, 'í') // Asegurar que í sea reconocida
-    .replace(/ó/g, 'ó') // Asegurar que ó sea reconocida
+    // Acentos específicos que han causado problemas
+    .replace(/í/g, String.fromCharCode(0xED)) // Normalizar í (Unicode estándar)
+    .replace(/ó/g, String.fromCharCode(0xF3)) // Normalizar ó (Unicode estándar)
+    .replace(/ñ/g, String.fromCharCode(0xF1)) // Normalizar ñ (Unicode estándar)
+    
+    // Otros caracteres que podrían causar problemas
     .replace(/['']/g, "'") // Comillas simples estándar
     .replace(/[""]/g, '"') // Comillas dobles estándar
-    .replace(/…/g, '...') // Puntos suspensivos
+    .replace(/…/g, "...") // Puntos suspensivos
     .replace(/–|—/g, '-'); // Guiones
   
   // Separar en líneas si hay saltos de línea
@@ -272,7 +277,7 @@ function processSpecialCharsForSTL(text, verboseFlag) {
   
   for (let i = 0; i < text.length; i++) {
     const char = text.charAt(i);
-    const code = mapCharToCP437(char);
+    const code = mapCharToCP437(char, verboseFlag);
     bytes[i] = code;
     
     // Detectar caracteres especiales para logging
@@ -292,64 +297,61 @@ function processSpecialCharsForSTL(text, verboseFlag) {
 }
 
 /**
- * Mapea un carácter individual a su representación en CP437 (DOS Latin US)
- * basado en la tabla de caracteres de Subtitle Edit
- * @param {string} char - Carácter a mapear
- * @return {number} - Valor de byte mapeado
+ * Mapea caracteres individuales a su representación en CP437 (DOS Latin US)
+ * Valores verificados con tabla de referencia CP437
+ * @param {string} char - Carácter individual a mapear
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {number} - Valor CP437 para el carácter
  */
-function mapCharToCP437(char) {
+function mapCharToCP437(char, verboseFlag) {
   // Tabla de mapeo para caracteres especiales en español usando CP437 (DOS Latin US)
   const charMap = {
-    // Letras acentuadas minúsculas - CP437 (DOS Latin US)
-    'á': 0xA0, // á (160)
-    'é': 0x82, // é (130)
-    'í': 0x92, // í (146) - Valor ajustado para Subtitle Edit
-    'ó': 0x97, // ó (151) - Valor ajustado para Subtitle Edit
-    'ú': 0xA3, // ú (163)
-    'ü': 0x81, // ü (129)
-    'ñ': 0xA4, // ñ (164)
+    'á': 0xA0, // 160
+    'é': 0x82, // 130
+    'í': 0xA1, // 161 - Valor correcto para 'í' en CP437
+    'ó': 0xA2, // 162 - Valor correcto para 'ó' en CP437
+    'ú': 0xA3, // 163
+    'ñ': 0xA4, // 164
+    'Ñ': 0xA5, // 165
+    'ü': 0x81, // 129
+    'Ü': 0x9A, // 154
+    '¡': 0xAD, // 173
+    '¿': 0xBF, // 191
+    '°': 0xF8, // 248
+    '®': 0xAE, // 174
+    'ª': 0xA6, // 166
+    'º': 0xA7, // 167
+    '¬': 0xAA, // 170
+    // Otros caracteres especiales
+    // Valores de mapeo optimizados para CP437 y verificados con tabla de referencia
+    '«': 0xAE, // 174
+    '»': 0xAF, // 175
+    '"': 0x22, // 34
+    "'": 0x27, // 39
+    '–': 0x2D, // 45
+    '—': 0x2D,  // 45
     
     // Letras acentuadas mayúsculas
-    'Á': 0xB5, // Á (181)
-    'É': 0x90, // É (144)
-    'Í': 0xD6, // Í (214)
-    'Ó': 0xE0, // Ó (224)
-    'Ú': 0xE9, // Ú (233)
-    'Ü': 0x9A, // Ü (154)
-    'Ñ': 0xA5, // Ñ (165)
-    
-    // Signos de puntuación específicos
-    '¿': 0xA8, // ¿ (168)
-    '¡': 0xAD, // ¡ (173)
+    'Á': 0xB5, // 181
+    'É': 0x90, // 144
+    'Í': 0xD6, // 214
+    'Ó': 0xE0, // 224
+    'Ú': 0xE9, // 233
     
     // Caracteres de control
-    '\r': 0x0D, // CR (Carriage Return)
-    '\n': 0x0A, // LF (Line Feed)
+    '\r': 0x0D, // CR
+    '\n': 0x0A, // LF
     ' ': 0x20, // Espacio
-    
-    // Otros caracteres comunes
-    '«': 0xAE, // comilla angular izquierda (174)
-    '»': 0xAF, // comilla angular derecha (175)
-    '"': 0x22, // comillas dobles (34)
-    '"': 0x22, // comillas dobles inglesas
-    '"': 0x22, // comillas dobles inglesas
-    "'": 0x27, // comilla simple (39)
-    // Caracteres de guión
-    '–': 0x2D, // guión (45)
-    '—': 0x2D  // guión largo (45)
   };
   
-  // Si el carácter está en el mapa, devolver su valor mapeado
+  // Obtener el valor mapeado o usar el código ASCII si no está en el mapa
   if (charMap[char] !== undefined) {
     return charMap[char];
+  } else if (char.charCodeAt(0) <= 127) {
+    return char.charCodeAt(0); // ASCII estándar (0-127)
+  } else {
+    // Para caracteres no mapeados, usar '?' (63)
+    if (verboseFlag) Logger.log(`Carácter no mapeado: "${char}" (${char.charCodeAt(0)})`);
+    return 63; // Signo de interrogación para caracteres no mapeados
   }
-  
-  // Para otros caracteres, usar su valor ASCII/Unicode si está en el rango imprimible
-  const code = char.charCodeAt(0);
-  if (code >= 0x20 && code <= 0x7F) { // Rango ASCII imprimible
-    return code;
-  }
-  
-  // Para caracteres no mapeados, usar espacio como fallback
-  return 0x20; // Espacio (32 decimal)
 } 

@@ -925,53 +925,59 @@ function probarConversionCompleta(sheetId) {
 }
 
 /**
- * Función para realizar una prueba de las correcciones
+ * Función de prueba para verificar las correcciones
+ * Especialmente optimizada para caracteres especiales "í" y "ó"
  */
 function probarCorrecciones() {
-  // Configuración de prueba
+  // Activar modo verbose para logs detallados
+  setVerbose(true);
+  Logger.log("=== INICIANDO PRUEBA DE CORRECCIONES ===");
+  
+  // Parámetros de prueba
   const sheetId = "1YlaOCinPTChLLxDF-Ce7mIyu2UAMHqGSKcf4t0yLCM0";
   const country = "ARG";
-  const languageCode = "0A";
-  const verboseFlag = true;
-  
-  // Activar modo verbose para ver logs detallados
-  setVerbose(true);
-  
-  // Inicia log de ejecución
-  Logger.log("=== PRUEBA DE CORRECCIONES ===");
-  Logger.log("Probando con configuraciones corregidas:");
-  Logger.log("- SheetId: " + sheetId);
-  Logger.log("- País: " + country);
-  Logger.log("- Código de idioma: " + languageCode);
-  
-  // Crear carpeta temporal para pruebas
-  const folder = DriveApp.createFolder("Prueba_Corregida_STL_" + new Date().getTime());
-  const folderId = folder.getId();
-  
-  Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folderId + ")");
+  const languageCode = "0A"; // Español
   
   try {
-    // Ejecutar la conversión
+    // Crear carpeta temporal para pruebas
+    const folderName = `Prueba_STL_CP437_${new Date().getTime()}`;
+    const folder = DriveApp.createFolder(folderName);
+    Logger.log(`Carpeta creada: ${folderName} (ID: ${folder.getId()})`);
+    
+    // Pruebas específicas para caracteres problemáticos
+    Logger.log("=== PRUEBA DE MAPEO DE CARACTERES ===");
+    const caracteresTest = ["í", "ó", "Merlín", "Corazón"];
+    
+    caracteresTest.forEach(texto => {
+      const bytesArray = processTextForSTL(texto, true);
+      let hexValues = [];
+      for (let i = 0; i < bytesArray.length; i++) {
+        hexValues.push("0x" + bytesArray[i].toString(16).padStart(2, '0'));
+      }
+      Logger.log(`Texto: "${texto}" -> Bytes: [${hexValues.join(', ')}]`);
+    });
+    
+    // Ejecutar la conversión con los parámetros correctos
+    Logger.log("=== EJECUTANDO CONVERSIÓN STL ===");
     const result = convertSheetToSTL({ 
       sheetId, 
       country, 
       languageCode, 
-      folderId, 
-      verboseFlag 
+      folderId: folder.getId(), 
+      verboseFlag: true 
     });
     
-    // Mostrar resultado
-    Logger.log("\n¡CONVERSIÓN EXITOSA!");
-    Logger.log("- Nombre de archivo: " + result.fileName);
-    Logger.log("- URL: " + result.fileUrl);
-    Logger.log("- URL de descarga: " + result.downloadUrl);
-    Logger.log("- Subtítulos: " + result.subtitleCount);
+    // Mostrar resultados de la conversión
+    Logger.log("=== RESULTADOS DE LA CONVERSIÓN ===");
+    Logger.log(`Éxito: ${result.success}`);
+    Logger.log(`Archivo: ${result.fileName}`);
+    Logger.log(`URL: ${result.fileUrl}`);
+    
+    return "Prueba completada. Revisar logs para detalles.";
   } catch (error) {
-    Logger.log("\n¡ERROR EN LA CONVERSIÓN!");
-    Logger.log("- Mensaje: " + error.message);
-    if (error.stack) Logger.log("- Stack: " + error.stack);
-  } finally {
-    Logger.log("=== FIN DE PRUEBA DE CORRECCIONES ===");
+    Logger.log(`ERROR en prueba: ${error.message}`);
+    Logger.log(error.stack);
+    return `Error: ${error.message}`;
   }
 }
 
