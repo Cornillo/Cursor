@@ -223,48 +223,17 @@ function addSecondsToTimecode(timecode, seconds) {
 }
 
 /**
- * @deprecated FUNCIÓN OBSOLETA. Use la versión en DataAccess.gs en su lugar
  * Valida y formatea un código de tiempo al formato estándar HH:MM:SS:FF
  * adaptado específicamente para formato de 24fps y Subtitle Edit
  * @param {any} value - Valor a validar y formatear
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {string|null} Código de tiempo formateado o null si es inválido
+ * @deprecated Esta función se ha movido a DataAccess.gs, use esa versión en su lugar
  */
 function validateAndFormatTimecode(value, verboseFlag) {
-  // Esta es una implementación obsoleta que solo existe por compatibilidad
-  // Usar la implementación en DataAccess.gs en su lugar
-  Logger.log("ADVERTENCIA: Estás usando una función obsoleta en Utils.gs. Utiliza la versión en DataAccess.gs");
-  
-  if (!value) return null;
-  
-  try {
-    // Versión simple para evitar recursión y mantener compatibilidad
-    // Si ya tiene formato de timecode, simplemente normalizar
-    const str = String(value).trim().replace(/[;.]/g, ':');
-    const parts = str.split(':');
-    
-    if (parts.length === 4) {
-      let hours = parseInt(parts[0], 10);
-      let minutes = parseInt(parts[1], 10);
-      let seconds = parseInt(parts[2], 10);
-      let frames = parseInt(parts[3], 10);
-      
-      // Validar y ajustar rangos
-      hours = Math.max(0, Math.min(hours, 23));
-      minutes = Math.max(0, Math.min(minutes, 59));
-      seconds = Math.max(0, Math.min(seconds, 59));
-      frames = Math.max(0, Math.min(frames, 23)); // Para 24fps
-      
-      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
-    }
-    
-    // Para otros formatos o casos complejos, devolver un valor por defecto
-    return "00:00:00:00";
-    
-  } catch (e) {
-    Logger.log(`Error al validar timecode en función obsoleta: ${e.message}`);
-    return null;
-  }
+  // DEPRECADO: Esta función ahora se encuentra en DataAccess.gs
+  // Simplemente llamamos a la implementación en DataAccess.gs
+  return validateAndFormatTimecode(value, verboseFlag);
 }
 
 /**

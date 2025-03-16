@@ -933,6 +933,13 @@ function probarCorrecciones() {
   setVerbose(true);
   Logger.log("=== INICIANDO PRUEBA DE CORRECCIONES ===");
   
+  // Asegurarse de que estamos usando las funciones correctas de DataAccess.gs
+  Logger.log("=== VERIFICACIÓN DE FUNCIONES ===");
+  // Usar explícitamente la versión en DataAccess.gs para evitar problemas
+  const validarTimecode = function(tc, verbose) {
+    return validateAndFormatTimecode(tc, verbose); // Esta será automáticamente la de DataAccess.gs
+  };
+  
   // Parámetros de prueba
   const sheetId = "1YlaOCinPTChLLxDF-Ce7mIyu2UAMHqGSKcf4t0yLCM0";
   const country = "ARG";
@@ -943,6 +950,14 @@ function probarCorrecciones() {
     const folderName = `Prueba_STL_24FPS_${new Date().getTime()}`;
     const folder = DriveApp.createFolder(folderName);
     Logger.log(`Carpeta creada: ${folderName} (ID: ${folder.getId()})`);
+    
+    // Prueba explícita de la función validateAndFormatTimecode de DataAccess.gs
+    Logger.log("=== PRUEBA DE VALIDACIÓN DE TIMECODES ===");
+    const timecodesPrueba = ["01:00:10:15", "01:02:03:24", "00:59:59:23"];
+    timecodesPrueba.forEach(tc => {
+      const formatoCorregido = validarTimecode(tc, true);
+      Logger.log(`Timecode: ${tc} -> Formateado: ${formatoCorregido}`);
+    });
     
     // Pruebas específicas para caracteres problemáticos
     Logger.log("=== PRUEBA DE MAPEO DE CARACTERES ===");
