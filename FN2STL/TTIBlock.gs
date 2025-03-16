@@ -118,7 +118,7 @@ function convertNumberToBCD(number, byteLength) {
 
 /**
  * Convierte un código de tiempo al formato de bytes BCD para STL
- * Optimizado para 24fps
+ * Optimizado para 25fps (PAL)
  * @param {string} timecode - Código de tiempo en formato HH:MM:SS:FF
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Representación en bytes del código de tiempo
@@ -150,7 +150,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     const seconds = parseInt(parts[2], 10);
     let frames = parseInt(parts[3], 10);
     
-    // Validar rangos (adaptado para 24fps)
+    // Validar rangos (adaptado para 25fps - PAL)
     if (hours < 0 || hours > 23) {
       if (verboseFlag) Logger.log(`Horas fuera de rango (0-23): ${hours}`);
       return result;
@@ -166,10 +166,10 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
       return result;
     }
     
-    // Para 24fps, frames debe estar entre 0-23
-    if (frames < 0 || frames > 23) {
-      if (verboseFlag) Logger.log(`Frames fuera de rango para 24fps (0-23): ${frames}, ajustando...`);
-      frames = Math.max(0, Math.min(frames, 23));
+    // Para 25fps (PAL), frames debe estar entre 0-24
+    if (frames < 0 || frames > 24) {
+      if (verboseFlag) Logger.log(`Frames fuera de rango para 25fps (0-24): ${frames}, ajustando...`);
+      frames = Math.max(0, Math.min(frames, 24));
     }
     
     // Convertir cada componente a BCD
@@ -272,27 +272,27 @@ function processSpecialCharsForSTL(text, verboseFlag) {
 function mapCharToCP437(char) {
   // Tabla de mapeo para caracteres especiales en español
   const charMap = {
-    // Letras acentuadas minúsculas
-    'á': 0xA0, // á
-    'é': 0x82, // é
-    'í': 0xA1, // í
-    'ó': 0xA2, // ó
-    'ú': 0xA3, // ú
-    'ü': 0x81, // ü
-    'ñ': 0xA4, // ñ
+    // Letras acentuadas minúsculas - ajustadas para CP437
+    'á': 0xA0, // á (160)
+    'é': 0x82, // é (130)
+    'í': 0xA1, // í (161) - ajustado para asegurar correcta visualización
+    'ó': 0xA2, // ó (162) - ajustado para asegurar correcta visualización
+    'ú': 0xA3, // ú (163)
+    'ü': 0x81, // ü (129)
+    'ñ': 0xA4, // ñ (164)
     
     // Letras acentuadas mayúsculas
-    'Á': 0xB5, // Á
-    'É': 0x90, // É
-    'Í': 0xD6, // Í
-    'Ó': 0xE0, // Ó
-    'Ú': 0xE9, // Ú
-    'Ü': 0x9A, // Ü
-    'Ñ': 0xA5, // Ñ
+    'Á': 0xB5, // Á (181)
+    'É': 0x90, // É (144)
+    'Í': 0xD6, // Í (214)
+    'Ó': 0xE0, // Ó (224)
+    'Ú': 0xE9, // Ú (233)
+    'Ü': 0x9A, // Ü (154)
+    'Ñ': 0xA5, // Ñ (165)
     
     // Signos de puntuación específicos
-    '¿': 0xA8, // ¿
-    '¡': 0xAD, // ¡
+    '¿': 0xA8, // ¿ (168)
+    '¡': 0xAD, // ¡ (173)
     
     // Caracteres de control
     '\r': 0x0D, // CR (Carriage Return)
@@ -300,15 +300,15 @@ function mapCharToCP437(char) {
     ' ': 0x20, // Espacio
     
     // Otros caracteres comunes
-    '«': 0xAE, // comilla angular izquierda
-    '»': 0xAF, // comilla angular derecha
-    '"': 0x22, // comillas dobles
+    '«': 0xAE, // comilla angular izquierda (174)
+    '»': 0xAF, // comilla angular derecha (175)
+    '"': 0x22, // comillas dobles (34)
     '"': 0x22, // comillas dobles inglesas
     '"': 0x22, // comillas dobles inglesas
-    "'": 0x27, // comilla simple
+    "'": 0x27, // comilla simple (39)
     // Caracteres de guión
-    '–': 0x2D, // guión
-    '—': 0x2D  // guión largo
+    '–': 0x2D, // guión (45)
+    '—': 0x2D  // guión largo (45)
   };
   
   // Si el carácter está en el mapa, devolver su valor mapeado
