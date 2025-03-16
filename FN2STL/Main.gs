@@ -688,13 +688,20 @@ function convertFromUI(formData) {
     }
     
     // Establecer valores por defecto
+    const sheetId = formData.sheetId;
     const country = formData.country || "ARG";
     const languageCode = formData.languageCode || "0A";
     const folderId = formData.folderId || null;
     const verboseFlag = formData.verbose === "true" || formData.verbose === true;
     
     // Ejecutar la conversión
-    const result = convertSheetToSTL({ sheetId, country, languageCode, folderId, verboseFlag });
+    const result = convertSheetToSTL({ 
+      sheetId, 
+      country, 
+      languageCode, 
+      folderId, 
+      verboseFlag 
+    });
     
     return result;
     
@@ -788,7 +795,13 @@ function testConversionReal(sheetId) {
   
   try {
     // Ejecutar la conversión
-    const result = convertSheetToSTL({ sheetId, country, languageCode, null, verboseFlag });
+    const result = convertSheetToSTL({ 
+      sheetId, 
+      country, 
+      languageCode, 
+      folderId: null, 
+      verboseFlag 
+    });
     
     Logger.log("=== PRUEBA COMPLETADA ===");
     Logger.log(`Resultado: ${result.success ? "ÉXITO" : "ERROR"}`);
@@ -935,7 +948,13 @@ function probarCorrecciones() {
   Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folder.getId() + ")");
   
   // Ejecutar la conversión
-  const result = convertSheetToSTL({ sheetId, country, languageCode, folder.getId() });
+  const result = convertSheetToSTL({ 
+    sheetId, 
+    country, 
+    languageCode, 
+    folderId: folder.getId(), 
+    verboseFlag: true 
+  });
   
   // Mostrar resultado
   Logger.log("\n¡CONVERSIÓN EXITOSA!");
@@ -988,5 +1007,47 @@ function combineBlocks(gsiBlock, ttiBlocks, verboseFlag) {
   } catch (error) {
     Logger.log(`Error al combinar bloques: ${error.message}`);
     throw error;
+  }
+}
+
+/**
+ * Ejecuta el proceso de conversión de una hoja a STL
+ * @param {Object} formData - Datos del formulario
+ * @return {Object} - Resultado de la conversión
+ */
+function runConversion(formData) {
+  const sheetId = formData.sheetId;
+  const country = formData.country || "ARG";
+  const languageCode = formData.languageCode || "0A";
+  const folderId = formData.folderId;
+  const verboseFlag = formData.verbose || false;
+  
+  // Verificar parámetros requeridos
+  if (!sheetId) {
+    return {
+      success: false,
+      error: "No se especificó la hoja de cálculo"
+    };
+  }
+  
+  try {
+    Logger.log(`Iniciando conversión de hoja ${sheetId} a STL`);
+    
+    // Ejecutar la conversión
+    const result = convertSheetToSTL({ 
+      sheetId, 
+      country, 
+      languageCode, 
+      folderId, 
+      verboseFlag 
+    });
+    
+    return result;
+  } catch (error) {
+    Logger.log(`Error en la conversión: ${error.message}`);
+    return {
+      success: false,
+      error: error.message
+    };
   }
 }

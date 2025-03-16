@@ -305,8 +305,8 @@ function mapCharToCP437(char) {
     '"': 0x22, // comillas dobles
     '"': 0x22, // comillas dobles inglesas
     '"': 0x22, // comillas dobles inglesas
-    ''': 0x27, // comilla simple
-    ''': 0x27, // comilla simple inglesa
+    "'": 0x27, // comilla simple
+    // Caracteres de guión
     '–': 0x2D, // guión
     '—': 0x2D  // guión largo
   };
