@@ -5,7 +5,7 @@
 
 /**
  * Crea el bloque GSI (General Subtitle Information) para el archivo STL
- * con formato 23.976fps y mejor compatibilidad con Subtitle Edit
+ * con formato 24fps exacto y mejor compatibilidad con Subtitle Edit
  * 
  * @param {Object} options - Opciones para el bloque GSI
  * @param {string} options.programName - Nombre del programa (max 32 chars)
@@ -39,9 +39,12 @@ function createGSIBlock(options) {
   
   // Código de página de caracteres (CPN) - byte 0-2 - "850" (DOS Latin Extended)
   writeStringToBuffer(buffer, 0, "850");
+  if (verboseFlag) Logger.log("CPN escrito: 850");
   
   // Código de formato de disco (DFC) - bytes 3-10 - "STL24.01" (24fps exacto)
-  writeStringToBuffer(buffer, 3, "STL24.01");
+  const formatoDisco = "STL24.01";
+  writeStringToBuffer(buffer, 3, formatoDisco);
+  if (verboseFlag) Logger.log(`DFC escrito: ${formatoDisco}`);
   
   // Código estándar de pantalla (DSC) - byte 11 - "0" (Open subtitling)
   buffer[11] = 0x30; // '0' (Open subtitling)
@@ -88,8 +91,22 @@ function createGSIBlock(options) {
   
   if (verboseFlag) {
     Logger.log("Bloque GSI creado con éxito");
-    Logger.log(`Código de página: 850`);
-    Logger.log(`Formato de disco: STL24.01`);
+    
+    // Verificación final de los valores críticos escritos
+    let cpnTexto = "";
+    for (let i = 0; i < 3; i++) {
+      cpnTexto += String.fromCharCode(buffer[i]);
+    }
+    Logger.log(`CPN verificado: ${cpnTexto}`);
+    
+    let dfcTexto = "";
+    for (let i = 3; i < 11; i++) {
+      dfcTexto += String.fromCharCode(buffer[i]);
+    }
+    Logger.log(`DFC verificado: ${dfcTexto}`);
+    
+    Logger.log(`Código de página: ${cpnTexto}`);
+    Logger.log(`Formato de disco: ${dfcTexto}`);
     Logger.log(`Estándar de pantalla: 0 (Open subtitling)`);
     Logger.log(`Tabla de caracteres: 00 (Latin/CP437)`);
     Logger.log(`Fecha de creación: ${year}${month}${day}`);

@@ -398,11 +398,13 @@ function mapCharToCP437(char, verboseFlag) {
 function resetCache() {
   try {
     const cache = CacheService.getScriptCache();
-    cache.removeAll();
-    Logger.log("Caché del script limpiada con éxito");
+    // En Google Apps Script, no existe removeAll directo
+    // Por lo que simularemos un reset estableciendo una clave temporal
+    cache.put("cache_reset_marker", new Date().toString(), 1);
+    Logger.log("Caché del script marcada para reset");
     return true;
   } catch (error) {
-    Logger.log(`Error al limpiar caché: ${error.message}`);
+    Logger.log(`Error con el manejo de caché: ${error.message}`);
     return false;
   }
 }
@@ -446,4 +448,57 @@ function diagnosticarGSI(gsiBlock, verboseFlag = true) {
     
     Logger.log("=== FIN DEL DIAGNÓSTICO ===");
   }
+}
+
+/**
+ * Función para verificar y analizar un timecode convertido a BCD
+ * Esto nos permite detectar posibles diferencias en la codificación de tiempos
+ * @param {string} timecode - Texto del timecode (HH:MM:SS:FF)
+ * @param {boolean} verboseFlag - Mostrar información detallada
+ */
+function verificarTimecode(timecode, verboseFlag = true) {
+  if (verboseFlag) Logger.log(`=== Verificación del timecode ${timecode} ===`);
+  
+  // 1. Convertir el timecode a bytes BCD
+  const bcdBytes = convertTimecodeToBytes(timecode, verboseFlag);
+  
+  // 2. Mostrar bytes en formato hexadecimal
+  const hexTexto = Array.from(bcdBytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+  if (verboseFlag) Logger.log(`BCD bytes: ${hexTexto}`);
+  
+  // 3. Decodificar bytes BCD de vuelta a un timecode para verificar
+  let horas = ((bcdBytes[0] >> 4) * 10) + (bcdBytes[0] & 0x0F);
+  let minutos = ((bcdBytes[1] >> 4) * 10) + (bcdBytes[1] & 0x0F);
+  let segundos = ((bcdBytes[2] >> 4) * 10) + (bcdBytes[2] & 0x0F);
+  let frames = ((bcdBytes[3] >> 4) * 10) + (bcdBytes[3] & 0x0F);
+  
+  const decodificado = `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+  if (verboseFlag) Logger.log(`Decodificado: ${decodificado}`);
+  
+  // 4. Comparar con valores de referencia (archivo que funciona)
+  const referenciasComunes = {
+    "01:00:00:00": "01 00 00 00",
+    "01:00:04:16": "01 00 04 16",
+    "01:00:00:16": "01 00 00 16",
+    "01:02:45:03": "01 02 45 03",
+    "01:02:46:13": "01 02 46 13"
+  };
+  
+  if (referenciasComunes[timecode]) {
+    if (verboseFlag) Logger.log(`Referencia conocida: ${referenciasComunes[timecode]}`);
+    if (hexTexto !== referenciasComunes[timecode].replace(/\s/g, ' ')) {
+      if (verboseFlag) Logger.log(`DIFERENCIA DETECTADA: El timecode no coincide con la referencia`);
+    } else {
+      if (verboseFlag) Logger.log(`Coincide con la referencia`);
+    }
+  }
+  
+  if (verboseFlag) Logger.log(`=== Fin de la verificación ===`);
+  
+  return {
+    original: timecode,
+    bcdBytes: bcdBytes,
+    hexTexto: hexTexto,
+    decodificado: decodificado
+  };
 } 
