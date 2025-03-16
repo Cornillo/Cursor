@@ -236,7 +236,7 @@ function validateAndFormatTimecode(value, verboseFlag) {
     if (isTimecodeFormat(value)) {
       if (verboseFlag) Logger.log(`Valor ya tiene formato de timecode: ${value}`);
       
-      // Normalizar separadores a ':' (Subtitle Edit espera este formato)
+      // Normalizar separadores a ':' (Subtitle Edit espera este formato internamente)
       let timecode = String(value).trim().replace(/[;.]/g, ':');
       
       // Extraer componentes
@@ -262,10 +262,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
         seconds = Math.max(0, Math.min(seconds, 59));
       }
       
-      // Convertir frames a valores apropiados para STL25.01 (25fps)
-      // En la visualización, frames debe estar entre 0 y 24
+      // Para STL25.01 (PAL): Máximo 24 frames (0-24)
       if (frames < 0 || frames > 24) {
-        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando...`);
+        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato PAL...`);
         frames = Math.max(0, Math.min(frames, 24));
       }
       

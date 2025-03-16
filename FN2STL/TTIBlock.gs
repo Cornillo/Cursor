@@ -163,8 +163,13 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     if (seconds > 59) seconds = 59;
     
     if (isNaN(frames)) frames = 0;
-    if (frames > 24) frames = 24; // Para STL25.01 (PAL)
     
+    // Para STL25.01 (PAL):
+    // - Los frames en el archivo deben estar entre 0-24 
+    // - Subtitle Edit los muestra convertidos a milisegundos (1 frame = 40ms)
+    if (frames > 24) frames = 24;
+    
+    // Para debug: mostrar el timecode normalizado
     if (verboseFlag) {
       Logger.log(`Convertido timecode ${timecode} a componentes: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`);
     }

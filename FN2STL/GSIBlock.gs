@@ -28,7 +28,7 @@ function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFla
   writeStringToBuffer(gsiBlock, "850", 0, 3);
   
   // 2. Código de Disco (DFC: Disk Format Code)
-  // STL25.01 para 25 fps - mejor compatibilidad con Subtitle Edit
+  // "STL25.01" para 25 fps (formato PAL) - Compatible con Subtitle Edit
   writeStringToBuffer(gsiBlock, "STL25.01", 3, 8);
   
   // 3. Código de Estándar de Visualización (DSC: Display Standard Code)
@@ -36,8 +36,8 @@ function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFla
   writeStringToBuffer(gsiBlock, "0", 11, 1);
   
   // 4. Código de Tabla de Caracteres (CCT: Character Code Table)
-  // 01 = Latin/ISO 8859-1 mejor para español con Subtitle Edit
-  writeStringToBuffer(gsiBlock, "01", 12, 2);
+  // 00 = ISO 6937/2 - 333 (Latin), más compatible con Subtitle Edit
+  writeStringToBuffer(gsiBlock, "00", 12, 2);
   
   // 5. Código de Idioma (LC: Language Code)
   writeStringToBuffer(gsiBlock, languageCode, 14, 2);
@@ -95,6 +95,7 @@ function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFla
   writeStringToBuffer(gsiBlock, "02", 253, 2);
   
   // 21. Estado del Código de Tiempo (TCS: Time Code Status)
+  // 1 = Time code relates to the program
   writeStringToBuffer(gsiBlock, "1", 255, 1);
   
   // 22. Código de Tiempo de Inicio (TCP: Time Code: Start-of-Programme)
@@ -107,6 +108,7 @@ function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFla
   writeStringToBuffer(gsiBlock, country.toUpperCase().padEnd(3, ' '), 272, 3);
   
   // 25. Tipo de Subtítulos (TND: Type of Subtitling)
+  // 0 = Undefined
   writeStringToBuffer(gsiBlock, "0", 275, 1);
   
   if (verboseFlag) {

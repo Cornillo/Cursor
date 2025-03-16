@@ -148,12 +148,11 @@ function convertSheetToSTL(sheetId, country, languageCode, folderId, verboseFlag
     
     return {
       success: true,
-      fileName: fileInfo.fileName,
-      fileId: fileInfo.fileId,
-      fileUrl: fileInfo.fileUrl,
+      fileId: fileInfo.id,
+      fileName: fileInfo.name,
+      fileUrl: fileInfo.url,
       downloadUrl: fileInfo.downloadUrl,
-      subtitleCount: subtitles.length,
-      fileSize: stlFile.length
+      subtitleCount: subtitles.length
     };
     
   } catch (e) {
@@ -881,50 +880,37 @@ function probarConversionCompleta(sheetId) {
  * Función para realizar una prueba de las correcciones
  */
 function probarCorrecciones() {
-  Logger.log("=== PRUEBA DE CORRECCIONES ===");
-  
-  // Ejecutar la prueba de conversión completa
+  // Configuración de prueba
   const sheetId = "1YlaOCinPTChLLxDF-Ce7mIyu2UAMHqGSKcf4t0yLCM0";
+  const country = "ARG";
+  const languageCode = "0A";
   
-  try {
-    // Parámetros para la prueba
-    const country = "ARG";
-    const languageCode = "0A"; // Español
-    
-    // Crear una carpeta temporal para esta prueba
-    const folder = DriveApp.createFolder("Prueba_Corregida_STL_" + new Date().getTime());
-    const folderId = folder.getId();
-    
-    Logger.log("Probando con configuraciones corregidas:");
-    Logger.log("- SheetId: " + sheetId);
-    Logger.log("- País: " + country);
-    Logger.log("- Código de idioma: " + languageCode);
-    Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folderId + ")");
-    
-    // Activar modo detallado
-    verboseFlag = true;
-    
-    // Realizar la conversión con las correcciones aplicadas
-    const result = convertSheetToSTL(sheetId, country, languageCode, folderId, true);
-    
-    // Verificar resultado
-    if (result.success) {
-      Logger.log("\n¡CONVERSIÓN EXITOSA!");
-      Logger.log("- Nombre de archivo: " + result.fileName);
-      Logger.log("- URL: " + result.fileUrl);
-      Logger.log("- URL de descarga: " + (result.downloadUrl || "No disponible"));
-      Logger.log("- Subtítulos: " + result.subtitleCount);
-    } else {
-      Logger.log("\nERROR EN LA CONVERSIÓN:");
-      Logger.log("- Mensaje: " + result.error);
-    }
-  } catch (error) {
-    Logger.log("\nEXCEPCIÓN DURANTE LA PRUEBA:");
-    Logger.log("- Mensaje: " + error.message);
-    Logger.log("- Stack: " + error.stack);
-  }
+  // Crear carpeta temporal para pruebas
+  const folder = DriveApp.createFolder("Prueba_Corregida_STL_" + new Date().getTime());
   
+  // Activar modo verbose para ver logs detallados
+  setVerbose(true);
+  
+  // Inicia log de ejecución
+  Logger.log("=== PRUEBA DE CORRECCIONES ===");
+  Logger.log("Probando con configuraciones corregidas:");
+  Logger.log("- SheetId: " + sheetId);
+  Logger.log("- País: " + country);
+  Logger.log("- Código de idioma: " + languageCode);
+  Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folder.getId() + ")");
+  
+  // Ejecutar la conversión
+  const result = convertSheetToSTL(sheetId, country, languageCode, folder.getId());
+  
+  // Mostrar resultado
+  Logger.log("\n¡CONVERSIÓN EXITOSA!");
+  Logger.log("- Nombre de archivo: " + result.fileName);
+  Logger.log("- URL: " + result.fileUrl);
+  Logger.log("- URL de descarga: " + result.downloadUrl);
+  Logger.log("- Subtítulos: " + result.subtitleCount);
   Logger.log("=== FIN DE PRUEBA DE CORRECCIONES ===");
+  
+  return result;
 }
 
 function test(){

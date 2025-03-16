@@ -406,12 +406,19 @@ function getSpreadsheetName(sheetId) {
  * @param {string} fileName - Nombre del archivo
  * @param {string} folderId - ID de la carpeta destino
  * @param {boolean} verboseFlag - Indicador para mostrar logs detallados
- * @return {string} ID del archivo creado
+ * @return {Object} Información del archivo creado (id, nombre, url)
  */
 function saveSTLFile(stlData, fileName, folderId, verboseFlag) {
   if (verboseFlag) Logger.log(`Guardando archivo STL: ${fileName}`);
   
   try {
+    // Asegurar que el nombre del archivo tenga la extensión .STL
+    if (!fileName.toUpperCase().endsWith('.STL')) {
+      fileName = fileName + '.STL';
+    }
+    
+    if (verboseFlag) Logger.log(`Nombre de archivo normalizado: ${fileName}`);
+    
     // Convertir Uint8Array a Blob
     const blob = Utilities.newBlob(stlData, "application/octet-stream", fileName);
     
@@ -428,8 +435,13 @@ function saveSTLFile(stlData, fileName, folderId, verboseFlag) {
       Logger.log(`Archivo STL guardado con éxito. ID: ${file.getId()}`);
     }
     
-    // Devolver el ID del archivo
-    return file.getId();
+    // Devolver información completa del archivo
+    return {
+      id: file.getId(),
+      name: file.getName(),
+      url: file.getUrl(),
+      downloadUrl: `https://drive.google.com/uc?id=${file.getId()}&export=download`
+    };
     
   } catch (error) {
     Logger.log(`Error al guardar archivo STL: ${error.message}`);
