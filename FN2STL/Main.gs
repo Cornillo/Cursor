@@ -932,9 +932,7 @@ function probarCorrecciones() {
   const sheetId = "1YlaOCinPTChLLxDF-Ce7mIyu2UAMHqGSKcf4t0yLCM0";
   const country = "ARG";
   const languageCode = "0A";
-  
-  // Crear carpeta temporal para pruebas
-  const folder = DriveApp.createFolder("Prueba_Corregida_STL_" + new Date().getTime());
+  const verboseFlag = true;
   
   // Activar modo verbose para ver logs detallados
   setVerbose(true);
@@ -945,26 +943,36 @@ function probarCorrecciones() {
   Logger.log("- SheetId: " + sheetId);
   Logger.log("- País: " + country);
   Logger.log("- Código de idioma: " + languageCode);
-  Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folder.getId() + ")");
   
-  // Ejecutar la conversión
-  const result = convertSheetToSTL({ 
-    sheetId, 
-    country, 
-    languageCode, 
-    folderId: folder.getId(), 
-    verboseFlag: true 
-  });
+  // Crear carpeta temporal para pruebas
+  const folder = DriveApp.createFolder("Prueba_Corregida_STL_" + new Date().getTime());
+  const folderId = folder.getId();
   
-  // Mostrar resultado
-  Logger.log("\n¡CONVERSIÓN EXITOSA!");
-  Logger.log("- Nombre de archivo: " + result.fileName);
-  Logger.log("- URL: " + result.fileUrl);
-  Logger.log("- URL de descarga: " + result.downloadUrl);
-  Logger.log("- Subtítulos: " + result.subtitleCount);
-  Logger.log("=== FIN DE PRUEBA DE CORRECCIONES ===");
+  Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folderId + ")");
   
-  return result;
+  try {
+    // Ejecutar la conversión
+    const result = convertSheetToSTL({ 
+      sheetId, 
+      country, 
+      languageCode, 
+      folderId, 
+      verboseFlag 
+    });
+    
+    // Mostrar resultado
+    Logger.log("\n¡CONVERSIÓN EXITOSA!");
+    Logger.log("- Nombre de archivo: " + result.fileName);
+    Logger.log("- URL: " + result.fileUrl);
+    Logger.log("- URL de descarga: " + result.downloadUrl);
+    Logger.log("- Subtítulos: " + result.subtitleCount);
+  } catch (error) {
+    Logger.log("\n¡ERROR EN LA CONVERSIÓN!");
+    Logger.log("- Mensaje: " + error.message);
+    if (error.stack) Logger.log("- Stack: " + error.stack);
+  } finally {
+    Logger.log("=== FIN DE PRUEBA DE CORRECCIONES ===");
+  }
 }
 
 function test(){
@@ -1049,5 +1057,71 @@ function runConversion(formData) {
       success: false,
       error: error.message
     };
+  }
+}
+
+/**
+ * Abre una hoja de Google Sheets según su ID
+ * @param {string} sheetId - ID de la hoja de cálculo de Google
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Sheet} - Objeto de hoja de Google Sheets
+ */
+function openSheet(sheetId, verboseFlag) {
+  if (verboseFlag) Logger.log(`Abriendo hoja con ID: ${sheetId}`);
+  
+  try {
+    // Abrir la hoja de cálculo
+    const spreadsheet = SpreadsheetApp.openById(sheetId);
+    if (!spreadsheet) {
+      throw new Error(`No se pudo abrir la hoja de cálculo con ID: ${sheetId}`);
+    }
+    
+    // Obtener la hoja activa
+    const sheet = spreadsheet.getActiveSheet();
+    if (!sheet) {
+      throw new Error(`No se pudo obtener la hoja activa del documento`);
+    }
+    
+    if (verboseFlag) Logger.log(`Hoja abierta: "${sheet.getName()}" del documento "${spreadsheet.getName()}"`);
+    
+    return sheet;
+  } catch (error) {
+    if (verboseFlag) Logger.log(`Error al abrir hoja: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * Extrae subtítulos de una hoja de Google Sheets
+ * @param {Sheet} sheet - Objeto de hoja de Google Sheets
+ * @param {object} sheetStructure - Estructura detectada de la hoja
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Array} - Array de objetos con datos de subtítulos
+ */
+function extractSubtitlesFromSheet(sheet, sheetStructure, verboseFlag) {
+  if (verboseFlag) Logger.log(`Extrayendo subtítulos de hoja "${sheet.getName()}"...`);
+  
+  try {
+    // Verificar que la estructura sea válida
+    if (!sheetStructure || !sheetStructure.valid) {
+      throw new Error(`Estructura de hoja inválida: ${sheetStructure ? sheetStructure.error : 'No hay estructura'}`);
+    }
+    
+    // Usar la función existente extractSubtitleData
+    const subtitles = extractSubtitleData(sheet, sheetStructure, verboseFlag);
+    
+    if (verboseFlag) {
+      Logger.log(`Subtítulos extraídos: ${subtitles.length}`);
+      
+      // Mostrar ejemplos de algunos subtítulos
+      for (let i = 0; i < Math.min(3, subtitles.length); i++) {
+        Logger.log(`Ejemplo #${i+1}: ${subtitles[i].startTime} - ${subtitles[i].endTime} "${subtitles[i].text.substring(0, 30)}${subtitles[i].text.length > 30 ? '...' : ''}"`);
+      }
+    }
+    
+    return subtitles;
+  } catch (error) {
+    if (verboseFlag) Logger.log(`Error al extraer subtítulos: ${error.message}`);
+    throw error;
   }
 }
