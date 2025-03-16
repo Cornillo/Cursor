@@ -157,7 +157,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
         
         // Convertir milisegundos a frames para 23.976fps (o aproximadamente 24/1.001)
         // 1 segundo = 23.976 frames, por lo que 1 frame = 41.708... ms
-        frames = Math.round(milliseconds / 41.708);
+        frames = Math.floor(milliseconds / 41.708);
       } else {
         if (verboseFlag) Logger.log(`Formato de timecode inválido: ${timecode}`);
         return result;
@@ -204,6 +204,11 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     // Convertir cada componente a BCD (Binary Coded Decimal) según especificación EBU
     // Cada byte almacena dos dígitos decimales: el dígito de las decenas en los 4 bits altos
     // y el dígito de las unidades en los 4 bits bajos
+    hours = Math.max(0, Math.min(hours, 23));
+    minutes = Math.max(0, Math.min(minutes, 59));
+    seconds = Math.max(0, Math.min(seconds, 59));
+    frames = Math.max(0, Math.min(frames, 23));
+    
     result[0] = (Math.floor(hours / 10) << 4) | (hours % 10);
     result[1] = (Math.floor(minutes / 10) << 4) | (minutes % 10);
     result[2] = (Math.floor(seconds / 10) << 4) | (seconds % 10);
@@ -326,19 +331,19 @@ function processSpecialCharsForSTL(text, verboseFlag) {
 }
 
 /**
- * Mapea caracteres individuales a su representación en CP437 (DOS Latin US)
- * Valores verificados con tabla de referencia CP437
+ * Mapea caracteres individuales a su representación en CP850 (DOS Latin Extended)
+ * Valores verificados con tabla de referencia CP850
  * @param {string} char - Carácter individual a mapear
  * @param {boolean} verboseFlag - Activar logs detallados
- * @return {number} - Valor CP437 para el carácter
+ * @return {number} - Valor CP850 para el carácter
  */
 function mapCharToCP437(char, verboseFlag) {
-  // Tabla de mapeo para caracteres especiales en español usando CP437 (DOS Latin US)
+  // Tabla de mapeo para caracteres especiales en español usando CP850 (DOS Latin Extended)
   const charMap = {
     'á': 0xA0, // 160
     'é': 0x82, // 130
-    'í': 0xA1, // 161 - Valor correcto para 'í' en CP437
-    'ó': 0xA2, // 162 - Valor correcto para 'ó' en CP437
+    'í': 0xA1, // 161
+    'ó': 0xA2, // 162
     'ú': 0xA3, // 163
     'ñ': 0xA4, // 164
     'Ñ': 0xA5, // 165
@@ -352,7 +357,7 @@ function mapCharToCP437(char, verboseFlag) {
     'º': 0xA7, // 167
     '¬': 0xAA, // 170
     // Otros caracteres especiales
-    // Valores de mapeo optimizados para CP437 y verificados con tabla de referencia
+    // Valores de mapeo optimizados para CP850 y verificados con tabla de referencia
     '«': 0xAE, // 174
     '»': 0xAF, // 175
     '"': 0x22, // 34

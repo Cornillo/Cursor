@@ -263,7 +263,8 @@ function validateAndFormatTimecode(value, verboseFlag) {
           
           // Convertir milisegundos a frames para 23.976fps (o aproximadamente 24/1.001)
           // 1 segundo = 23.976 frames, por lo que 1 frame = 41.708... ms
-          frames = Math.round(milliseconds / 41.708);
+          // Usando Math.floor para mantener consistencia con TTIBlock.gs
+          frames = Math.floor(milliseconds / 41.708);
         } else {
           if (verboseFlag) Logger.log(`Formato de timecode inválido: ${value}`);
           return null;
@@ -325,7 +326,7 @@ function validateAndFormatTimecode(value, verboseFlag) {
       
       // Para 23.976fps, cada frame = 41.708ms (1000/23.976)
       const ms = value.getMilliseconds();
-      let frames = Math.round(ms / 41.708);  // 1000ms / 23.976fps = 41.708ms por frame
+      let frames = Math.floor(ms / 41.708);  // Cambiado a Math.floor para consistencia
       
       // Asegurar que frames esté en el rango 0-23
       if (frames < 0) frames = 0;
@@ -372,8 +373,8 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const seconds = parseInt(msMatch[3], 10);
         const ms = parseInt(msMatch[4], 10);
         
-        // Convertir milisegundos a frames para 24fps 
-        let frames = Math.round(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
+        // Convertir milisegundos a frames para 23.976fps
+        let frames = Math.floor(ms / 41.708);  // Cambiado a Math.floor para consistencia
         if (frames < 0) frames = 0;
         if (frames > 23) frames = 23;
         
