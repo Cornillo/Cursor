@@ -37,8 +37,8 @@ function createGSIBlock(options) {
   
   // ===== ENCABEZADO DE ARCHIVO =====
   
-  // Código de página de caracteres (CPN) - byte 0-2 - "850" (Latin-1)
-  writeStringToBuffer(buffer, 0, "850");
+  // Código de página de caracteres (CPN) - byte 0-2 - "437" (DOS Latin US)
+  writeStringToBuffer(buffer, 0, "437");
   
   // Código de formato de disco (DFC) - bytes 3-10 - "STL25.01" (25fps - PAL)
   writeStringToBuffer(buffer, 3, "STL25.01");
@@ -46,7 +46,7 @@ function createGSIBlock(options) {
   // Código estándar de pantalla (DSC) - byte 11 - "0" (Open subtitling)
   buffer[11] = 0x30; // '0' (Open subtitling)
   
-  // Código de tabla de caracteres (CCT) - bytes 12-13 - "00" (Latin/CP850)
+  // Código de tabla de caracteres (CCT) - bytes 12-13 - "00" (Latin/CP437)
   writeStringToBuffer(buffer, 12, "00");
   
   // Código de idioma (LC) - bytes 14-15 - "0A" (Español)
@@ -88,10 +88,10 @@ function createGSIBlock(options) {
   
   if (verboseFlag) {
     Logger.log("Bloque GSI creado con éxito");
-    Logger.log(`Código de página: 850`);
+    Logger.log(`Código de página: 437`);
     Logger.log(`Formato de disco: STL25.01`);
     Logger.log(`Estándar de pantalla: 0 (Open subtitling)`);
-    Logger.log(`Tabla de caracteres: 00 (Latin/CP850)`);
+    Logger.log(`Tabla de caracteres: 00 (Latin/CP437)`);
     Logger.log(`Fecha de creación: ${year}${month}${day}`);
     Logger.log(`Número de subtítulos: ${subtitleCountStr}`);
   }

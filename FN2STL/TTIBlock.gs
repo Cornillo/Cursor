@@ -193,7 +193,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
 
 /**
  * Procesa texto para formato STL con mejor manejo de caracteres especiales
- * Optimizado para CP850 y compatible con Subtitle Edit
+ * Optimizado para CP437 y compatible con Subtitle Edit
  * @param {string} text - Texto del subtítulo
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Array de bytes procesados
@@ -205,6 +205,8 @@ function processTextForSTL(text, verboseFlag) {
   // Normalizar caracteres especiales comunes en español
   text = text
     .replace(/ñ/g, 'ñ') // Asegurar que ñ sea reconocida
+    .replace(/í/g, 'í') // Asegurar que í sea reconocida
+    .replace(/ó/g, 'ó') // Asegurar que ó sea reconocida
     .replace(/['']/g, "'") // Comillas simples estándar
     .replace(/[""]/g, '"') // Comillas dobles estándar
     .replace(/…/g, '...') // Puntos suspensivos
@@ -257,7 +259,7 @@ function processTextForSTL(text, verboseFlag) {
 }
 
 /**
- * Procesa caracteres especiales para STL usando CP850
+ * Procesa caracteres especiales para STL usando CP437 (DOS Latin US)
  * @param {string} text - Texto a procesar
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Array de bytes de caracteres mapeados
@@ -290,19 +292,19 @@ function processSpecialCharsForSTL(text, verboseFlag) {
 }
 
 /**
- * Mapea un carácter individual a su representación en CP850 (Latin-1)
+ * Mapea un carácter individual a su representación en CP437 (DOS Latin US)
  * basado en la tabla de caracteres de Subtitle Edit
  * @param {string} char - Carácter a mapear
  * @return {number} - Valor de byte mapeado
  */
 function mapCharToCP437(char) {
-  // Tabla de mapeo para caracteres especiales en español usando CP850
+  // Tabla de mapeo para caracteres especiales en español usando CP437 (DOS Latin US)
   const charMap = {
-    // Letras acentuadas minúsculas - CP850 (Latin-1)
+    // Letras acentuadas minúsculas - CP437 (DOS Latin US)
     'á': 0xA0, // á (160)
     'é': 0x82, // é (130)
-    'í': 0xA1, // í (161)
-    'ó': 0xA2, // ó (162)
+    'í': 0x92, // í (146) - Valor ajustado para Subtitle Edit
+    'ó': 0x97, // ó (151) - Valor ajustado para Subtitle Edit
     'ú': 0xA3, // ú (163)
     'ü': 0x81, // ü (129)
     'ñ': 0xA4, // ñ (164)
