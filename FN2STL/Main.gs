@@ -52,157 +52,175 @@ function logMessage(message) {
 }
 
 /**
- * Función principal para convertir datos de una hoja a formato STL
- * Implementación mejorada para 24fps y compatibilidad con Subtitle Edit
- * 
- * @param {Object} options - Opciones de configuración
- * @param {string} options.sheetId - ID de la hoja de subtítulos
- * @param {string} options.country - Código del país
- * @param {string} options.languageCode - Código del idioma
- * @param {string} options.folderId - ID de la carpeta para guardar
- * @param {boolean} options.verboseFlag - Habilitar logs detallados
- * @return {Object} - Objeto con resultado y URL del archivo STL
+ * Convierte los datos de subtítulos de hoja de cálculo a formato STL
+ * @param {string} sheetId - ID de la hoja de cálculo
+ * @param {string} country - Código de país (ARG/BRA/MEX)
+ * @param {string} languageCode - Código de idioma (0A=Español, 21=Portugués)
+ * @param {string} tempFolderId - ID de carpeta para guardar temporales
+ * @param {boolean} verboseFlag - Habilitar logs detallados
+ * @return {Object} - Información del archivo STL generado
  */
-function convertSheetToSTL(options) {
-  const {
-    sheetId,
-    country = "ARG",
-    languageCode = "0A",
-    folderId,
-    verboseFlag = false
-  } = options || {};
-  
+function convertSheetToSTL(sheetId, country, languageCode, tempFolderId, verboseFlag = false) {
   try {
-    // 1. Validar parámetros
-    if (!sheetId) {
-      throw new Error("Se requiere ID de hoja");
+    // Activar o desactivar logs detallados
+    Logger.log(`Modo verbose: ${verboseFlag ? "ACTIVADO" : "DESACTIVADO"}`);
+    
+    Logger.log("=== INICIANDO CONVERSIÓN A STL ===");
+    Logger.log(`SheetID: ${sheetId}`);
+    Logger.log(`País: ${country}`);
+    Logger.log(`Idioma: ${languageCode}`);
+    Logger.log(`Carpeta: ${tempFolderId}`);
+    
+    // 1. Abrir la hoja y extraer datos
+    Logger.log(`Abriendo hoja con ID: ${sheetId}`);
+    const spreadsheet = SpreadsheetApp.openById(sheetId);
+    const sheet = spreadsheet.getActiveSheet();
+    Logger.log(`Hoja abierta: "${sheet.getName()}" del documento "${spreadsheet.getName()}"`);
+    
+    // 2. Analizar estructura
+    Logger.log(`Hoja abierta: "${sheet.getName()}"`);
+    const structure = analyzeSheetStructure(sheet, verboseFlag);
+    
+    if (!structure.valid) {
+      throw new Error(`No se pudo analizar la estructura: ${structure.error}`);
     }
     
-    if (!folderId) {
-      throw new Error("Se requiere ID de carpeta");
-    }
+    // 3. Extraer subtítulos
+    Logger.log(`Extrayendo subtítulos de hoja "${sheet.getName()}"...`);
+    const subtitles = extractSubtitleData(sheet, structure, verboseFlag);
     
-    if (verboseFlag) {
-      Logger.log("=== INICIANDO CONVERSIÓN A STL ===");
-      Logger.log(`SheetID: ${sheetId}`);
-      Logger.log(`País: ${country}`);
-      Logger.log(`Idioma: ${languageCode}`);
-      Logger.log(`Carpeta: ${folderId}`);
-    }
-    
-    // 2. Abrir la hoja de cálculo
-    const sheet = openSheet(sheetId, verboseFlag);
-    if (!sheet) {
-      throw new Error("No se pudo abrir la hoja de cálculo");
-    }
-    
-    const sheetName = sheet.getName();
-    if (verboseFlag) Logger.log(`Hoja abierta: "${sheetName}"`);
-    
-    // 3. Analizar la estructura de la hoja
-    const sheetStructure = analyzeSheetStructure(sheet, verboseFlag);
-    if (!sheetStructure) {
-      throw new Error("No se pudo determinar la estructura de la hoja");
-    }
-    
-    // 4. Extraer datos de subtítulos
-    const subtitles = extractSubtitlesFromSheet(sheet, sheetStructure, verboseFlag);
-    if (!subtitles || subtitles.length === 0) {
+    if (subtitles.length === 0) {
       throw new Error("No se encontraron subtítulos válidos");
     }
     
-    if (verboseFlag) {
-      Logger.log(`Subtítulos extraídos: ${subtitles.length}`);
-      // Mostrar ejemplos de los primeros subtítulos
-      for (let i = 0; i < Math.min(3, subtitles.length); i++) {
-        Logger.log(`Ejemplo #${i+1}: ${JSON.stringify(subtitles[i])}`);
-      }
+    Logger.log(`Subtítulos extraídos: ${subtitles.length}`);
+    // Mostrar algunos ejemplos
+    for (let i = 0; i < Math.min(3, subtitles.length); i++) {
+      Logger.log(`Ejemplo #${i+1}: ${subtitles[i].startTime} - ${subtitles[i].endTime} "${subtitles[i].text.substring(0, 30)}${subtitles[i].text.length > 30 ? '...' : ''}"`);
     }
     
-    // 5. Crear bloque GSI
-    const gsiBlock = createGSIBlock({
-      programName: sheetName,
+    // 4. Crear archivo STL
+    
+    // 4.1 Obtener título del programa
+    const programName = spreadsheet.getName();
+    
+    // 4.2 Crear bloque GSI
+    const gsiOptions = {
+      programName: sheet.getName(),
       countryOrigin: country,
       languageCode: languageCode,
       subtitleCount: subtitles.length,
       verboseFlag: verboseFlag
-    });
+    };
     
-    if (verboseFlag) Logger.log("Bloque GSI creado");
+    Logger.log(`Subtítulos extraídos: ${subtitles.length}`);
+    // Mostrar algunos ejemplos en JSON completo para depuración
+    for (let i = 0; i < Math.min(3, subtitles.length); i++) {
+      Logger.log(`Ejemplo #${i+1}: ${JSON.stringify(subtitles[i])}`);
+    }
     
-    // 6. Crear bloques TTI para cada subtítulo
+    const gsiBlock = createGSIBlock(gsiOptions);
+    Logger.log("Bloque GSI creado");
+    
+    // Ejecutamos diagnóstico del bloque GSI
+    if (verboseFlag) {
+      diagnosticarGSI(gsiBlock, verboseFlag);
+    }
+    
+    // 4.3 Crear bloques TTI (uno por subtítulo)
     const ttiBlocks = [];
+    
     for (let i = 0; i < subtitles.length; i++) {
       const subtitle = subtitles[i];
-      const ttiBlock = createTTIBlock({
-        subtitleNumber: i + 1,
+      
+      const ttiOptions = {
+        subtitleNumber: subtitle.number || (i + 1),
         timecodeIn: subtitle.startTime,
         timecodeOut: subtitle.endTime,
         text: subtitle.text,
         verboseFlag: verboseFlag
-      });
+      };
       
+      const ttiBlock = createTTIBlock(ttiOptions);
       ttiBlocks.push(ttiBlock);
       
-      if (verboseFlag && i % 10 === 0) {
-        Logger.log(`Procesados ${i+1} de ${subtitles.length} bloques TTI`);
+      if (verboseFlag && (i === 0 || i === subtitles.length - 1 || i % 50 === 0)) {
+        Logger.log(`Procesados ${i + 1} de ${subtitles.length} bloques TTI`);
       }
     }
     
-    if (verboseFlag) Logger.log(`Total de bloques TTI creados: ${ttiBlocks.length}`);
+    Logger.log(`Total de bloques TTI creados: ${ttiBlocks.length}`);
     
-    // 7. Combinar bloques GSI y TTI
-    const combinedSize = gsiBlock.length + ttiBlocks.reduce((sum, block) => sum + block.length, 0);
-    const stlData = new Uint8Array(combinedSize);
+    // 4.4 Combinar bloques para formar el archivo STL completo
+    const totalSize = gsiBlock.length + (ttiBlocks.length * 128);
+    Logger.log(`Tamaño total del archivo STL: ${totalSize} bytes`);
     
-    // Copiar GSI
-    stlData.set(gsiBlock, 0);
+    // Crear un buffer del tamaño adecuado
+    const stlBuffer = new Uint8Array(totalSize);
     
-    // Copiar TTI bloques secuencialmente
-    let offset = gsiBlock.length;
-    for (const block of ttiBlocks) {
-      stlData.set(block, offset);
-      offset += block.length;
+    // Copiar el bloque GSI al inicio
+    stlBuffer.set(gsiBlock, 0);
+    
+    // Copiar cada bloque TTI después del GSI
+    for (let i = 0; i < ttiBlocks.length; i++) {
+      stlBuffer.set(ttiBlocks[i], gsiBlock.length + (i * 128));
     }
     
-    if (verboseFlag) {
-      Logger.log(`Tamaño total del archivo STL: ${stlData.length} bytes`);
-      Logger.log("Bloques combinados exitosamente");
-    }
+    Logger.log("Bloques combinados exitosamente");
     
-    // 8. Guardar archivo STL
+    // 4.5 Guardar el archivo STL
     const now = new Date();
-    const dateStr = Utilities.formatDate(now, "GMT", "yyyy-MM-dd");
-    const fileName = `${sheetName}_${dateStr}.STL`;
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
     
-    const fileInfo = saveSTLFile(stlData, fileName, folderId, verboseFlag);
+    const fileName = `${sheet.getName()}_${year}-${month}-${day}.STL`;
     
-    if (verboseFlag) {
-      Logger.log(`Archivo STL guardado: ${fileName}`);
-      Logger.log(`ID del archivo: ${fileInfo.id}`);
-      Logger.log(`URL: ${fileInfo.url}`);
-      Logger.log("=== CONVERSIÓN FINALIZADA CON ÉXITO ===");
-    }
+    Logger.log(`Guardando archivo STL: ${fileName}`);
     
-    // 9. Retornar resultado
+    // Guardar el archivo en Google Drive
+    const fileInfo = saveSTLFile(stlBuffer, fileName, tempFolderId, verboseFlag);
+    
+    Logger.log(`Archivo STL guardado: ${fileName}`);
+    Logger.log(`ID del archivo: ${fileInfo.id}`);
+    Logger.log(`URL: ${fileInfo.url}`);
+    
+    Logger.log("=== CONVERSIÓN FINALIZADA CON ÉXITO ===");
+    
+    Logger.log("=== RESULTADOS DE LA CONVERSIÓN ===");
+    Logger.log(`Éxito: true`);
+    Logger.log(`Archivo: ${fileName}`);
+    Logger.log(`ID del archivo: ${fileInfo.id}`);
+    Logger.log(`URL: ${fileInfo.url}`);
+    Logger.log(`URL de descarga: ${fileInfo.downloadUrl}`);
+    
+    // 5. Devolver resultado
     return {
       success: true,
       fileName: fileName,
       fileId: fileInfo.id,
       fileUrl: fileInfo.url,
-      downloadUrl: `https://drive.google.com/uc?id=${fileInfo.id}&export=download`,
-      subtitleCount: subtitles.length,
-      message: `Archivo STL creado con ${subtitles.length} subtítulos`
+      downloadUrl: fileInfo.downloadUrl
     };
     
   } catch (error) {
     Logger.log(`ERROR: ${error.message}`);
+    Logger.log(error.stack);
     
     return {
       success: false,
       error: error.message
     };
   }
+}
+
+/**
+ * Función para probar la función resetCache
+ * Útil cuando hay problemas de caché persistente
+ */
+function probarResetCache() {
+  const resultado = resetCache();
+  Logger.log("Resultado de resetCache: " + resultado);
 }
 
 /**

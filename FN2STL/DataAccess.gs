@@ -261,10 +261,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
           seconds = parseInt(matches[3], 10);
           const milliseconds = parseInt(matches[4], 10);
           
-          // Convertir milisegundos a frames para 23.976fps (o aproximadamente 24/1.001)
-          // 1 segundo = 23.976 frames, por lo que 1 frame = 41.708... ms
-          // Usando Math.floor para mantener consistencia con TTIBlock.gs
-          frames = Math.floor(milliseconds / 41.708);
+          // Convertir milisegundos a frames para 24fps exactos
+          const MS_PER_FRAME = 1000 / 24; // Exactamente 41.6666... ms por frame
+          frames = Math.floor(milliseconds / MS_PER_FRAME);
         } else {
           if (verboseFlag) Logger.log(`Formato de timecode inválido: ${value}`);
           return null;
@@ -324,9 +323,10 @@ function validateAndFormatTimecode(value, verboseFlag) {
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
       
-      // Para 23.976fps, cada frame = 41.708ms (1000/23.976)
+      // Para 24fps, cada frame = 41.6666...ms (1000/24)
       const ms = value.getMilliseconds();
-      let frames = Math.floor(ms / 41.708);  // Cambiado a Math.floor para consistencia
+      const MS_PER_FRAME = 1000 / 24; // Exactamente 41.6666... ms por frame
+      let frames = Math.floor(ms / MS_PER_FRAME);  // Cambiado a Math.floor para consistencia
       
       // Asegurar que frames esté en el rango 0-23
       if (frames < 0) frames = 0;
@@ -373,8 +373,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const seconds = parseInt(msMatch[3], 10);
         const ms = parseInt(msMatch[4], 10);
         
-        // Convertir milisegundos a frames para 23.976fps
-        let frames = Math.floor(ms / 41.708);  // Cambiado a Math.floor para consistencia
+        // Convertir milisegundos a frames para 24fps exactos
+        const MS_PER_FRAME = 1000 / 24; // Exactamente 41.6666... ms por frame
+        let frames = Math.floor(ms / MS_PER_FRAME);  // Cambiado a Math.floor para consistencia
         if (frames < 0) frames = 0;
         if (frames > 23) frames = 23;
         

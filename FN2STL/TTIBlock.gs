@@ -155,9 +155,10 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
         seconds = parseInt(matches[3], 10);
         const milliseconds = parseInt(matches[4], 10);
         
-        // Convertir milisegundos a frames para 23.976fps (o aproximadamente 24/1.001)
-        // 1 segundo = 23.976 frames, por lo que 1 frame = 41.708... ms
-        frames = Math.floor(milliseconds / 41.708);
+        // Convertir milisegundos a frames para 24fps exactos
+        // 1 segundo = 24 frames, por lo que 1 frame = 41.6666... ms
+        const MS_PER_FRAME = 1000 / 24; // Exactamente 41.6666... ms por frame
+        frames = Math.floor(milliseconds / MS_PER_FRAME);
       } else {
         if (verboseFlag) Logger.log(`Formato de timecode inválido: ${timecode}`);
         return result;
@@ -387,5 +388,62 @@ function mapCharToCP437(char, verboseFlag) {
     // Para caracteres no mapeados, usar '?' (63)
     if (verboseFlag) Logger.log(`Carácter no mapeado: "${char}" (${char.charCodeAt(0)})`);
     return 63; // Signo de interrogación para caracteres no mapeados
+  }
+}
+
+/**
+ * Limpia la caché del script para resolver problemas de persistencia
+ * Se debe llamar cuando haya problemas con los valores almacenados
+ */
+function resetCache() {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.removeAll();
+    Logger.log("Caché del script limpiada con éxito");
+    return true;
+  } catch (error) {
+    Logger.log(`Error al limpiar caché: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Función de diagnóstico para comparar byte a byte un archivo STL
+ * con un archivo modelo conocido.
+ * @param {Uint8Array} gsiBlock - Bloque GSI generado
+ * @param {boolean} verboseFlag - Activar logs detallados
+ */
+function diagnosticarGSI(gsiBlock, verboseFlag = true) {
+  if (verboseFlag) {
+    // Mostramos los valores clave del bloque GSI
+    Logger.log("=== DIAGNÓSTICO DEL BLOQUE GSI ===");
+    
+    // CPN - Code Page Number
+    const cpn = String.fromCharCode(gsiBlock[0], gsiBlock[1], gsiBlock[2]);
+    Logger.log(`CPN (Código de página): "${cpn}" [${gsiBlock[0]},${gsiBlock[1]},${gsiBlock[2]}]`);
+    
+    // DFC - Disk Format Code
+    let dfc = "";
+    for (let i = 3; i <= 10; i++) {
+      dfc += String.fromCharCode(gsiBlock[i]);
+    }
+    Logger.log(`DFC (Formato de disco): "${dfc}" [${Array.from(gsiBlock.slice(3, 11))}]`);
+    
+    // DSC - Display Standard Code
+    const dsc = String.fromCharCode(gsiBlock[11]);
+    Logger.log(`DSC (Estándar de pantalla): "${dsc}" [${gsiBlock[11]}]`);
+    
+    // CCT - Character Code Table
+    const cct = String.fromCharCode(gsiBlock[12], gsiBlock[13]);
+    Logger.log(`CCT (Tabla de caracteres): "${cct}" [${gsiBlock[12]},${gsiBlock[13]}]`);
+    
+    // LC - Language Code
+    const lc = String.fromCharCode(gsiBlock[14], gsiBlock[15]);
+    Logger.log(`LC (Código de idioma): "${lc}" [${gsiBlock[14]},${gsiBlock[15]}]`);
+    
+    // Bytes de finalización
+    Logger.log(`Marcador de fin: "${String.fromCharCode(gsiBlock[1020], gsiBlock[1021], gsiBlock[1022], gsiBlock[1023])}" [${gsiBlock[1020]},${gsiBlock[1021]},${gsiBlock[1022]},${gsiBlock[1023]}]`);
+    
+    Logger.log("=== FIN DEL DIAGNÓSTICO ===");
   }
 } 
