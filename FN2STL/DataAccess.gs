@@ -224,6 +224,7 @@ function addSecondsToTimecode(timecode, seconds) {
 
 /**
  * Valida y formatea un código de tiempo al formato estándar HH:MM:SS:FF
+ * adaptado específicamente para Subtitle Edit usando 24fps
  * @param {any} value - Valor a validar y formatear
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {string|null} Código de tiempo formateado o null si es inválido
@@ -236,7 +237,7 @@ function validateAndFormatTimecode(value, verboseFlag) {
     if (isTimecodeFormat(value)) {
       if (verboseFlag) Logger.log(`Valor ya tiene formato de timecode: ${value}`);
       
-      // Normalizar separadores a ':' (Subtitle Edit espera este formato internamente)
+      // Normalizar separadores a ':' (formato estándar)
       let timecode = String(value).trim().replace(/[;.]/g, ':');
       
       // Extraer componentes
@@ -262,17 +263,11 @@ function validateAndFormatTimecode(value, verboseFlag) {
         seconds = Math.max(0, Math.min(seconds, 59));
       }
       
-      // Para STL25.01 (PAL): Máximo 24 frames (0-24)
-      // Subtitle Edit muestra timecodes en ms, donde cada frame = 40ms (1000/25fps)
-      // Ajustar a valores posibles para PAL
-      if (frames < 0 || frames > 24) {
-        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato PAL...`);
-        frames = Math.max(0, Math.min(frames, 24));
+      // Para STL24.01: Frames deben estar entre 0-23
+      if (frames < 0 || frames > 23) {
+        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato 24fps...`);
+        frames = Math.max(0, Math.min(frames, 23));
       }
-      
-      // Para compatibilidad con Subtitle Edit, ajustamos el último frame
-      // ya que puede haber diferencias de redondeo
-      if (frames == 24) frames = 23; // Evita problemas de límite de frames
       
       // Formatear con ceros a la izquierda
       const formattedTimecode = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
@@ -282,7 +277,7 @@ function validateAndFormatTimecode(value, verboseFlag) {
       return formattedTimecode;
     }
     
-    // Si es un objeto Date, convertir a timecode con ajuste para PAL
+    // Si es un objeto Date, convertir a timecode para 24fps
     if (value instanceof Date) {
       if (verboseFlag) Logger.log(`Convirtiendo Date a timecode: ${value}`);
       
@@ -290,12 +285,13 @@ function validateAndFormatTimecode(value, verboseFlag) {
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
       
-      // Para 25fps, convertimos milisegundos a frames con ajuste especial
+      // Para 24fps, cada frame = 41.67ms (1000/24)
       const ms = value.getMilliseconds();
-      let frames = Math.floor(ms / 40); // 1000ms / 25fps = 40ms por frame
+      let frames = Math.floor(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
       
-      // Ajustar el último frame para evitar problemas en Subtitle Edit
-      if (frames >= 24) frames = 23;
+      // Asegurar que frames esté en el rango 0-23
+      if (frames < 0) frames = 0;
+      if (frames > 23) frames = 23;
       
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
     }
@@ -338,9 +334,10 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const seconds = parseInt(msMatch[3], 10);
         const ms = parseInt(msMatch[4], 10);
         
-        // Convertir milisegundos a frames para 25fps (formato PAL) con ajuste
-        let frames = Math.floor(ms / 40); // 1000ms / 25fps = 40ms por frame
-        if (frames >= 24) frames = 23; // Ajuste para Subtitle Edit
+        // Convertir milisegundos a frames para 24fps 
+        let frames = Math.floor(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
+        if (frames < 0) frames = 0;
+        if (frames > 23) frames = 23;
         
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
       }

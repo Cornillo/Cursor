@@ -401,45 +401,62 @@ function getSpreadsheetName(sheetId) {
 }
 
 /**
- * Guarda los datos del archivo STL en Google Drive
- * @param {Uint8Array} stlData - Datos binarios del archivo STL
+ * Guarda un archivo STL en Google Drive
+ * @param {Uint8Array} data - Datos del archivo STL
  * @param {string} fileName - Nombre del archivo
- * @param {string} folderId - ID de la carpeta destino
- * @param {boolean} verboseFlag - Indicador para mostrar logs detallados
- * @return {Object} Información del archivo creado (id, nombre, url)
+ * @param {string} folderId - ID de la carpeta donde guardar el archivo
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Object} - Información del archivo guardado
  */
-function saveSTLFile(stlData, fileName, folderId, verboseFlag) {
+function saveSTLFile(data, fileName, folderId, verboseFlag) {
   if (verboseFlag) Logger.log(`Guardando archivo STL: ${fileName}`);
   
   try {
-    // Asegurar que el nombre del archivo tenga la extensión .STL
+    // Asegurar que el nombre termine con .STL (en mayúsculas)
     if (!fileName.toUpperCase().endsWith('.STL')) {
       fileName = fileName + '.STL';
+      if (verboseFlag) Logger.log(`Nombre de archivo ajustado a: ${fileName}`);
     }
     
-    if (verboseFlag) Logger.log(`Nombre de archivo normalizado: ${fileName}`);
+    // Convertir el array de bytes a un blob
+    const blob = Utilities.newBlob(data, 'application/octet-stream', fileName);
     
-    // Convertir Uint8Array a Blob
-    const blob = Utilities.newBlob(stlData, "application/octet-stream", fileName);
+    // Obtener la carpeta (o usar la raíz si no se especifica)
+    let folder;
     
-    // Obtener la carpeta de destino
-    const folder = DriveApp.getFolderById(folderId);
+    if (folderId) {
+      try {
+        folder = DriveApp.getFolderById(folderId);
+        if (verboseFlag) Logger.log(`Carpeta encontrada: ${folder.getName()}`);
+      } catch (e) {
+        if (verboseFlag) Logger.log(`Error al obtener carpeta: ${e}. Usando carpeta raíz.`);
+        folder = DriveApp.getRootFolder();
+      }
+    } else {
+      if (verboseFlag) Logger.log("No se especificó carpeta, usando raíz");
+      folder = DriveApp.getRootFolder();
+    }
     
-    // Guardar el archivo
+    // Crear el archivo en Drive
     const file = folder.createFile(blob);
     
-    // Establecer permisos de acceso (cualquiera con el enlace puede ver)
+    // Configurar permisos para que cualquiera con el enlace pueda ver
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     
     if (verboseFlag) {
-      Logger.log(`Archivo STL guardado con éxito. ID: ${file.getId()}`);
+      Logger.log(`Archivo STL guardado correctamente`);
+      Logger.log(`- Nombre: ${file.getName()}`);
+      Logger.log(`- ID: ${file.getId()}`);
+      Logger.log(`- Tamaño: ${file.getSize()} bytes`);
+      Logger.log(`- URL: ${file.getUrl()}`);
     }
     
-    // Devolver información completa del archivo
+    // Devolver información del archivo
     return {
       id: file.getId(),
       name: file.getName(),
       url: file.getUrl(),
+      size: file.getSize(),
       downloadUrl: `https://drive.google.com/uc?id=${file.getId()}&export=download`
     };
     

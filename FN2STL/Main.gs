@@ -52,114 +52,155 @@ function logMessage(message) {
 }
 
 /**
- * Convierte los subtítulos de una hoja de Google Sheets a formato STL
- * @param {string} sheetId - ID de la hoja de Google Sheets
- * @param {string} country - Código de país (3 caracteres)
- * @param {string} languageCode - Código de idioma (2 caracteres)
- * @param {string} folderId - ID de la carpeta de destino en Google Drive
- * @param {boolean} verboseFlag - Activar logs detallados
- * @return {object} Resultado de la conversión con URL del archivo generado
+ * Función principal para convertir datos de una hoja a formato STL
+ * Implementación mejorada para 24fps y compatibilidad con Subtitle Edit
+ * 
+ * @param {Object} options - Opciones de configuración
+ * @param {string} options.sheetId - ID de la hoja de subtítulos
+ * @param {string} options.country - Código del país
+ * @param {string} options.languageCode - Código del idioma
+ * @param {string} options.folderId - ID de la carpeta para guardar
+ * @param {boolean} options.verboseFlag - Habilitar logs detallados
+ * @return {Object} - Objeto con resultado y URL del archivo STL
  */
-function convertSheetToSTL(sheetId, country, languageCode, folderId, verboseFlag) {
-  if (verboseFlag) Logger.log(`Iniciando conversión de hoja ${sheetId} a STL`);
+function convertSheetToSTL(options) {
+  const {
+    sheetId,
+    country = "ARG",
+    languageCode = "0A",
+    folderId,
+    verboseFlag = false
+  } = options || {};
   
   try {
-    // 1. Abrir la hoja de cálculo
-    const spreadsheet = SpreadsheetApp.openById(sheetId);
-    if (!spreadsheet) {
-      throw new Error(`No se pudo abrir la hoja con ID: ${sheetId}`);
+    // 1. Validar parámetros
+    if (!sheetId) {
+      throw new Error("Se requiere ID de hoja");
     }
     
-    const sheet = spreadsheet.getActiveSheet();
-    const sheetName = sheet.getName();
-    
-    if (verboseFlag) Logger.log(`Hoja abierta: "${sheetName}"`);
-    
-    // 2. Analizar la estructura de la hoja
-    const structure = analyzeSheetStructure(sheet, verboseFlag);
-    
-    if (!structure.valid) {
-      throw new Error(`Estructura de hoja inválida: ${structure.error}`);
+    if (!folderId) {
+      throw new Error("Se requiere ID de carpeta");
     }
     
     if (verboseFlag) {
-      Logger.log(`Estructura de hoja detectada:`);
-      Logger.log(`- Columna de número: ${structure.numberCol}`);
-      Logger.log(`- Columna de tiempo inicial: ${structure.startTimeCol}`);
-      Logger.log(`- Columna de tiempo final: ${structure.endTimeCol}`);
-      Logger.log(`- Columna de texto: ${structure.textCol}`);
-      Logger.log(`- Fila de inicio de datos: ${structure.dataStartRow}`);
+      Logger.log("=== INICIANDO CONVERSIÓN A STL ===");
+      Logger.log(`SheetID: ${sheetId}`);
+      Logger.log(`País: ${country}`);
+      Logger.log(`Idioma: ${languageCode}`);
+      Logger.log(`Carpeta: ${folderId}`);
     }
     
-    // 3. Extraer los datos de subtítulos
-    const subtitles = extractSubtitleData(sheet, structure, verboseFlag);
-    
-    if (subtitles.length === 0) {
-      throw new Error("No se encontraron subtítulos válidos en la hoja");
+    // 2. Abrir la hoja de cálculo
+    const sheet = openSheet(sheetId, verboseFlag);
+    if (!sheet) {
+      throw new Error("No se pudo abrir la hoja de cálculo");
     }
     
-    if (verboseFlag) Logger.log(`Se extrajeron ${subtitles.length} subtítulos`);
+    const sheetName = sheet.getName();
+    if (verboseFlag) Logger.log(`Hoja abierta: "${sheetName}"`);
     
-    // 4. Crear el bloque GSI
-    const gsiBlock = createGSIBlock(sheetName, country, languageCode, subtitles.length, verboseFlag);
+    // 3. Analizar la estructura de la hoja
+    const sheetStructure = analyzeSheetStructure(sheet, verboseFlag);
+    if (!sheetStructure) {
+      throw new Error("No se pudo determinar la estructura de la hoja");
+    }
     
-    // 5. Crear los bloques TTI para cada subtítulo
+    // 4. Extraer datos de subtítulos
+    const subtitles = extractSubtitlesFromSheet(sheet, sheetStructure, verboseFlag);
+    if (!subtitles || subtitles.length === 0) {
+      throw new Error("No se encontraron subtítulos válidos");
+    }
+    
+    if (verboseFlag) {
+      Logger.log(`Subtítulos extraídos: ${subtitles.length}`);
+      // Mostrar ejemplos de los primeros subtítulos
+      for (let i = 0; i < Math.min(3, subtitles.length); i++) {
+        Logger.log(`Ejemplo #${i+1}: ${JSON.stringify(subtitles[i])}`);
+      }
+    }
+    
+    // 5. Crear bloque GSI
+    const gsiBlock = createGSIBlock({
+      programName: sheetName,
+      countryOrigin: country,
+      languageCode: languageCode,
+      subtitleCount: subtitles.length,
+      verboseFlag: verboseFlag
+    });
+    
+    if (verboseFlag) Logger.log("Bloque GSI creado");
+    
+    // 6. Crear bloques TTI para cada subtítulo
     const ttiBlocks = [];
-    
     for (let i = 0; i < subtitles.length; i++) {
       const subtitle = subtitles[i];
-      
-      if (verboseFlag && i < 5) {
-        Logger.log(`Procesando subtítulo #${i+1}: ${subtitle.startTime} - ${subtitle.endTime} "${subtitle.text}"`);
-      }
-      
-      const ttiBlock = createTTIBlock(
-        subtitle.number,
-        subtitle.startTime,
-        subtitle.endTime,
-        subtitle.text,
-        verboseFlag
-      );
+      const ttiBlock = createTTIBlock({
+        subtitleNumber: i + 1,
+        timecodeIn: subtitle.startTime,
+        timecodeOut: subtitle.endTime,
+        text: subtitle.text,
+        verboseFlag: verboseFlag
+      });
       
       ttiBlocks.push(ttiBlock);
-    }
-    
-    // 6. Combinar los bloques en un archivo STL
-    const stlFile = combineBlocks(gsiBlock, ttiBlocks, verboseFlag);
-    
-    // 7. Guardar el archivo en Google Drive
-    const fileName = `${sheetName.replace(/[^\w\s]/gi, '')}_${new Date().toISOString().slice(0,10)}`;
-    
-    // Crear el archivo en Drive
-    let folder;
-    if (folderId) {
-      try {
-        folder = DriveApp.getFolderById(folderId);
-      } catch (e) {
-        if (verboseFlag) Logger.log(`Error al obtener carpeta: ${e.message}. Usando carpeta raíz.`);
-        folder = DriveApp.getRootFolder();
+      
+      if (verboseFlag && i % 10 === 0) {
+        Logger.log(`Procesados ${i+1} de ${subtitles.length} bloques TTI`);
       }
-    } else {
-      folder = DriveApp.getRootFolder();
     }
     
-    // Guardar el archivo usando la función saveSTLFile
-    const fileInfo = saveSTLFile(stlFile, fileName, folder.getId(), verboseFlag);
+    if (verboseFlag) Logger.log(`Total de bloques TTI creados: ${ttiBlocks.length}`);
     
+    // 7. Combinar bloques GSI y TTI
+    const combinedSize = gsiBlock.length + ttiBlocks.reduce((sum, block) => sum + block.length, 0);
+    const stlData = new Uint8Array(combinedSize);
+    
+    // Copiar GSI
+    stlData.set(gsiBlock, 0);
+    
+    // Copiar TTI bloques secuencialmente
+    let offset = gsiBlock.length;
+    for (const block of ttiBlocks) {
+      stlData.set(block, offset);
+      offset += block.length;
+    }
+    
+    if (verboseFlag) {
+      Logger.log(`Tamaño total del archivo STL: ${stlData.length} bytes`);
+      Logger.log("Bloques combinados exitosamente");
+    }
+    
+    // 8. Guardar archivo STL
+    const now = new Date();
+    const dateStr = Utilities.formatDate(now, "GMT", "yyyy-MM-dd");
+    const fileName = `${sheetName}_${dateStr}.STL`;
+    
+    const fileInfo = saveSTLFile(stlData, fileName, folderId, verboseFlag);
+    
+    if (verboseFlag) {
+      Logger.log(`Archivo STL guardado: ${fileName}`);
+      Logger.log(`ID del archivo: ${fileInfo.id}`);
+      Logger.log(`URL: ${fileInfo.url}`);
+      Logger.log("=== CONVERSIÓN FINALIZADA CON ÉXITO ===");
+    }
+    
+    // 9. Retornar resultado
     return {
       success: true,
+      fileName: fileName,
       fileId: fileInfo.id,
-      fileName: fileInfo.name,
       fileUrl: fileInfo.url,
-      downloadUrl: fileInfo.downloadUrl,
-      subtitleCount: subtitles.length
+      downloadUrl: `https://drive.google.com/uc?id=${fileInfo.id}&export=download`,
+      subtitleCount: subtitles.length,
+      message: `Archivo STL creado con ${subtitles.length} subtítulos`
     };
     
-  } catch (e) {
-    Logger.log(`Error en la conversión: ${e.message}`);
+  } catch (error) {
+    Logger.log(`ERROR: ${error.message}`);
+    
     return {
       success: false,
-      error: e.message
+      error: error.message
     };
   }
 }
@@ -238,7 +279,7 @@ function testConversion(sheetId) {
       const testFolderId = "1ygkUbBtKKWcvq7WQuFXhc3smcac-0cha";
       
       // Llamar a convertSheetToSTL con la hoja real
-      const result = convertSheetToSTL(sheetId, "ARG", "0A", testFolderId, true);
+      const result = convertSheetToSTL({ sheetId, country: "ARG", languageCode: "0A", folderId: testFolderId, verboseFlag: true });
       
       Logger.log("=== PRUEBA COMPLETADA CON HOJA REAL ===");
       Logger.log(`Archivo STL generado: ${result.fileName}`);
@@ -653,13 +694,7 @@ function convertFromUI(formData) {
     const verboseFlag = formData.verbose === "true" || formData.verbose === true;
     
     // Ejecutar la conversión
-    const result = convertSheetToSTL(
-      formData.sheetId,
-      country,
-      languageCode,
-      folderId,
-      verboseFlag
-    );
+    const result = convertSheetToSTL({ sheetId, country, languageCode, folderId, verboseFlag });
     
     return result;
     
@@ -721,7 +756,7 @@ function testConversionFromUI(sheetId) {
     const testFolderId = "1ygkUbBtKKWcvq7WQuFXhc3smcac-0cha";
     
     // Llamar a la conversión normal pero asegurando que el nombre sea el de la hoja
-    return convertSheetToSTL(sheetId, "ARG", "0A", testFolderId, true);
+    return convertSheetToSTL({ sheetId, country: "ARG", languageCode: "0A", folderId: testFolderId, verboseFlag: true });
     
   } catch (error) {
     Logger.log("Error en testConversionFromUI: " + error.message);
@@ -753,7 +788,7 @@ function testConversionReal(sheetId) {
   
   try {
     // Ejecutar la conversión
-    const result = convertSheetToSTL(sheetId, country, languageCode, null, verboseFlag);
+    const result = convertSheetToSTL({ sheetId, country, languageCode, null, verboseFlag });
     
     Logger.log("=== PRUEBA COMPLETADA ===");
     Logger.log(`Resultado: ${result.success ? "ÉXITO" : "ERROR"}`);
@@ -854,7 +889,7 @@ function probarConversionCompleta(sheetId) {
     
     // Realizar la conversión con modo verbose
     const verboseFlag = true;
-    const result = convertSheetToSTL(sheetId, country, languageCode, folderId, verboseFlag);
+    const result = convertSheetToSTL({ sheetId, country, languageCode, folderId, verboseFlag });
     
     // Mostrar resultado
     if (result.success) {
@@ -900,7 +935,7 @@ function probarCorrecciones() {
   Logger.log("- Carpeta: " + folder.getName() + " (ID: " + folder.getId() + ")");
   
   // Ejecutar la conversión
-  const result = convertSheetToSTL(sheetId, country, languageCode, folder.getId());
+  const result = convertSheetToSTL({ sheetId, country, languageCode, folder.getId() });
   
   // Mostrar resultado
   Logger.log("\n¡CONVERSIÓN EXITOSA!");

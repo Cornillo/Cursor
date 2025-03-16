@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <title>Herramienta de Diagnóstico STL</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1, h2, h3 {
+      color: #2c3e50;
+    }
+    h1 {
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
+      margin-bottom: 20px;
+    }
+    h2 {
+      margin-top: 30px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #eee;
+      color: #3498db;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    .upload-section {
+      border: 2px dashed #3498db;
+      padding: 20px;
+      text-align: center;
+      margin-bottom: 20px;
+      border-radius: 4px;
+      background-color: #f8fafc;
+    }
+    .btn {
+      background-color: #3498db;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+    .btn:hover {
+      background-color: #2980b9;
+    }
+    .results {
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f9f9f9;
+      display: none;
+    }
+    .analysis-section {
+      margin-top: 20px;
+    }
+    .json-container {
+      background-color: #f8f8f8;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+    }
+    .error {
+      color: #e74c3c;
+      background-color: #fadbd8;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    .success {
+      color: #27ae60;
+      background-color: #d4f5e2;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    .warning {
+      color: #f39c12;
+      font-weight: bold;
+    }
+    .compare-section {
+      display: none;
+      margin-top: 30px;
+    }
+    .file-pair {
+      display: flex;
+      gap: 20px;
+    }
+    .file-upload {
+      flex: 1;
+    }
+    .diff-section {
+      margin-top: 20px;
+      display: none;
+    }
+    .diff-item {
+      margin-bottom: 15px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f8fafc;
+    }
+    .diff-title {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .diff-content {
+      padding-left: 15px;
+    }
+    .diff-reference {
+      color: #27ae60;
+    }
+    .diff-compared {
+      color: #e74c3c;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 20px;
+    }
+    .tab {
+      padding: 10px 15px;
+      cursor: pointer;
+      background-color: #f8f8f8;
+      border: 1px solid #ddd;
+      border-bottom: none;
+      margin-right: 5px;
+      border-radius: 4px 4px 0 0;
+    }
+    .tab.active {
+      background-color: white;
+      border-bottom: 1px solid white;
+      margin-bottom: -1px;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .info-box {
+      background-color: #d9edf7;
+      border-color: #bce8f1;
+      color: #31708f;
+      padding: 15px;
+      margin: 10px 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+    }
+    .alert-box {
+      background-color: #fcf8e3;
+      border-color: #faebcc;
+      color: #8a6d3b;
+      padding: 15px;
+      margin: 10px 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Herramienta de Diagnóstico STL</h1>
+    
+    <div class="tabs">
+      <div class="tab active" data-tab="analyze">Analizar STL</div>
+      <div class="tab" data-tab="compare">Comparar STLs</div>
+    </div>
+    
+    <div id="analyze-tab" class="tab-content active">
+      <div class="section">
+        <h2>Análisis de Archivo STL</h2>
+        <p>Sube un archivo STL para analizar su estructura y verificar si cumple con el estándar EBU Tech 3264.</p>
+        
+        <div class="upload-section">
+          <p>Arrastra y suelta un archivo STL aquí o haz clic para seleccionar</p>
+          <input type="file" id="stlFile" accept=".stl" style="display: none;">
+          <button id="selectFileBtn" class="btn">Seleccionar Archivo STL</button>
+        </div>
+        
+        <div id="analysisResults" class="results">
+          <h3>Resultados del Análisis</h3>
+          <div id="analysisStatus"></div>
+          
+          <div class="analysis-section">
+            <h4>Información General</h4>
+            <div id="generalInfo"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Encabezado GSI</h4>
+            <div id="gsiHeader"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Detalles Técnicos del GSI</h4>
+            <div id="gsiTechnicalDetails"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Bloques TTI (Muestra)</h4>
+            <div id="ttiBlocks"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Detalles Técnicos TTI</h4>
+            <div id="ttiTechnicalDetails"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Compatibilidad con Editores</h4>
+            <div id="editorCompatibility"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Diagnóstico</h4>
+            <div id="diagnostics"></div>
+          </div>
+          
+          <button id="showRawBtn" class="btn" style="background-color: #95a5a6;">Ver JSON Completo</button>
+          <div id="rawJson" class="json-container" style="display:none; margin-top: 15px;"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="compare-tab" class="tab-content">
+      <div class="section">
+        <h2>Comparación de Archivos STL</h2>
+        <p>Sube dos archivos STL para compararlos y encontrar diferencias.</p>
+        
+        <div class="file-pair">
+          <div class="file-upload">
+            <div class="upload-section">
+              <p>Archivo de Referencia (Modelo)</p>
+              <input type="file" id="referenceFile" accept=".stl" style="display: none;">
+              <button id="selectReferenceBtn" class="btn">Seleccionar Modelo</button>
+              <div id="referenceFileName" style="margin-top: 10px; font-style: italic;"></div>
+            </div>
+          </div>
+          
+          <div class="file-upload">
+            <div class="upload-section">
+              <p>Archivo a Comparar (Generado)</p>
+              <input type="file" id="compareFile" accept=".stl" style="display: none;">
+              <button id="selectCompareBtn" class="btn">Seleccionar Generado</button>
+              <div id="compareFileName" style="margin-top: 10px; font-style: italic;"></div>
+            </div>
+          </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+          <button id="compareBtn" class="btn" disabled>Comparar Archivos</button>
+        </div>
+        
+        <div id="diffResults" class="diff-section">
+          <h3>Resultados de la Comparación</h3>
+          <div id="diffStatus"></div>
+          
+          <div class="analysis-section">
+            <h4>Diferencias Generales</h4>
+            <div id="generalDiff"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Diferencias en GSI</h4>
+            <div id="gsiDiff"></div>
+          </div>
+          
+          <div class="analysis-section">
+            <h4>Diferencias en Bloques TTI</h4>
+            <div id="ttiDiff"></div>
+          </div>
+          
+          <button id="showDiffRawBtn" class="btn" style="background-color: #95a5a6;">Ver JSON Completo</button>
+          <div id="diffRawJson" class="json-container" style="display:none; margin-top: 15px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Variables para almacenar archivos
+    let stlFile = null;
+    let referenceFile = null;
+    let compareFile = null;
+    
+    // Elementos DOM - Pestaña de análisis
+    const selectFileBtn = document.getElementById('selectFileBtn');
+    const stlFileInput = document.getElementById('stlFile');
+    const analysisResults = document.getElementById('analysisResults');
+    const analysisStatus = document.getElementById('analysisStatus');
+    const generalInfo = document.getElementById('generalInfo');
+    const gsiHeader = document.getElementById('gsiHeader');
+    const gsiTechnicalDetails = document.getElementById('gsiTechnicalDetails');
+    const ttiBlocks = document.getElementById('ttiBlocks');
+    const ttiTechnicalDetails = document.getElementById('ttiTechnicalDetails');
+    const editorCompatibility = document.getElementById('editorCompatibility');
+    const diagnostics = document.getElementById('diagnostics');
+    const showRawBtn = document.getElementById('showRawBtn');
+    const rawJson = document.getElementById('rawJson');
+    
+    // Elementos DOM - Pestaña de comparación
+    const selectReferenceBtn = document.getElementById('selectReferenceBtn');
+    const selectCompareBtn = document.getElementById('selectCompareBtn');
+    const referenceFileInput = document.getElementById('referenceFile');
+    const compareFileInput = document.getElementById('compareFile');
+    const referenceFileName = document.getElementById('referenceFileName');
+    const compareFileName = document.getElementById('compareFileName');
+    const compareBtn = document.getElementById('compareBtn');
+    const diffResults = document.getElementById('diffResults');
+    const diffStatus = document.getElementById('diffStatus');
+    const generalDiff = document.getElementById('generalDiff');
+    const gsiDiff = document.getElementById('gsiDiff');
+    const ttiDiff = document.getElementById('ttiDiff');
+    const showDiffRawBtn = document.getElementById('showDiffRawBtn');
+    const diffRawJson = document.getElementById('diffRawJson');
+    
+    // Tabs
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    // Event Listeners - Tabs
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        
+        tab.classList.add('active');
+        const tabId = tab.getAttribute('data-tab');
+        document.getElementById(`${tabId}-tab`).classList.add('active');
+      });
+    });
+    
+    // Event Listeners - Análisis
+    selectFileBtn.addEventListener('click', () => stlFileInput.click());
+    
+    stlFileInput.addEventListener('change', (event) => {
+      if (event.target.files.length > 0) {
+        stlFile = event.target.files[0];
+        analyzeSTL(stlFile);
+      }
+    });
+    
+    showRawBtn.addEventListener('click', () => {
+      if (rawJson.style.display === 'none') {
+        rawJson.style.display = 'block';
+        showRawBtn.textContent = 'Ocultar JSON';
+      } else {
+        rawJson.style.display = 'none';
+        showRawBtn.textContent = 'Ver JSON Completo';
+      }
+    });
+    
+    // Event Listeners - Comparación
+    selectReferenceBtn.addEventListener('click', () => referenceFileInput.click());
+    selectCompareBtn.addEventListener('click', () => compareFileInput.click());
+    
+    referenceFileInput.addEventListener('change', (event) => {
+      if (event.target.files.length > 0) {
+        referenceFile = event.target.files[0];
+        referenceFileName.textContent = referenceFile.name;
+        checkCompareReady();
+      }
+    });
+    
+    compareFileInput.addEventListener('change', (event) => {
+      if (event.target.files.length > 0) {
+        compareFile = event.target.files[0];
+        compareFileName.textContent = compareFile.name;
+        checkCompareReady();
+      }
+    });
+    
+    compareBtn.addEventListener('click', () => {
+      if (referenceFile && compareFile) {
+        compareSTLFiles(referenceFile, compareFile);
+      }
+    });
+    
+    showDiffRawBtn.addEventListener('click', () => {
+      if (diffRawJson.style.display === 'none') {
+        diffRawJson.style.display = 'block';
+        showDiffRawBtn.textContent = 'Ocultar JSON';
+      } else {
+        diffRawJson.style.display = 'none';
+        showDiffRawBtn.textContent = 'Ver JSON Completo';
+      }
+    });
+    
+    // Verificar si ambos archivos están listos para comparar
+    function checkCompareReady() {
+      if (referenceFile && compareFile) {
+        compareBtn.disabled = false;
+      }
+    }
+    
+    // Función para analizar un archivo STL
+    function analyzeSTL(file) {
+      // Mostrar estado de carga
+      analysisResults.style.display = 'block';
+      analysisStatus.innerHTML = '<div class="info">Analizando archivo...</div>';
+      generalInfo.innerHTML = '';
+      gsiHeader.innerHTML = '';
+      gsiTechnicalDetails.innerHTML = '';
+      ttiBlocks.innerHTML = '';
+      ttiTechnicalDetails.innerHTML = '';
+      editorCompatibility.innerHTML = '';
+      diagnostics.innerHTML = '';
+      rawJson.innerHTML = '';
+      
+      // Leer el archivo
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const base64Content = e.target.result.split(',')[1];
+        
+        // Enviar datos al servidor
+        google.script.run
+          .withSuccessHandler(handleAnalysisSuccess)
+          .withFailureHandler(handleAnalysisError)
+          .processSTLDiagnostic({
+            fileContent: e.target.result,
+            fileName: file.name
+          });
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    // Función para comparar dos archivos STL
+    function compareSTLFiles(file1, file2) {
+      // Mostrar estado de carga
+      diffResults.style.display = 'block';
+      diffStatus.innerHTML = '<div class="info">Comparando archivos...</div>';
+      generalDiff.innerHTML = '';
+      gsiDiff.innerHTML = '';
+      ttiDiff.innerHTML = '';
+      diffRawJson.innerHTML = '';
+      
+      // Leer ambos archivos
+      const reader1 = new FileReader();
+      reader1.onload = function(e1) {
+        const file1Content = e1.target.result;
+        
+        const reader2 = new FileReader();
+        reader2.onload = function(e2) {
+          const file2Content = e2.target.result;
+          
+          // Enviar datos al servidor
+          google.script.run
+            .withSuccessHandler(handleComparisonSuccess)
+            .withFailureHandler(handleComparisonError)
+            .compareSTLDiagnostic({
+              fileContent1: file1Content,
+              fileName1: file1.name,
+              fileContent2: file2Content,
+              fileName2: file2.name
+            });
+        };
+        reader2.readAsDataURL(file2);
+      };
+      reader1.readAsDataURL(file1);
+    }
+    
+    // Manejadores de resultados - Análisis
+    function handleAnalysisSuccess(result) {
+      if (result.success) {
+        analysisStatus.innerHTML = '<div class="success">Análisis completado correctamente</div>';
+        
+        // Mostrar información general
+        if (result.analysis) {
+          var generalInfoHtml = '<table>';
+          generalInfoHtml += '<tr><th>Tamaño del archivo</th><td>' + result.analysis.fileSize + ' bytes</td></tr>';
+          
+          if (result.analysis.ttiBlocks) {
+            generalInfoHtml += '<tr><th>Número de bloques TTI</th><td>' + result.analysis.ttiBlocks.length + '</td></tr>';
+          }
+          
+          // Mostrar si hay riesgo de fusión de subtítulos
+          if (result.analysis.mergedSubtitlesRisk) {
+            generalInfoHtml += '<tr><th>Riesgo de subtítulos fusionados</th><td class="warning">ALTO</td></tr>';
+          } else {
+            generalInfoHtml += '<tr><th>Riesgo de subtítulos fusionados</th><td>Bajo</td></tr>';
+          }
+          
+          // Mostrar análisis del estado acumulativo (CS)
+          if (result.analysis.cumulativeStatusAnalysis) {
+            var cs = result.analysis.cumulativeStatusAnalysis;
+            generalInfoHtml += '<tr><th>Subtítulos no acumulativos (CS=0)</th><td>' + 
+              cs.noAcumulativo + ' (' + cs.porcentajeNoAcumulativo + '%)</td></tr>';
+            
+            if (cs.acumulativo > 0) {
+              generalInfoHtml += '<tr><th>Subtítulos acumulativos (CS=1)</th><td class="warning">' + 
+                cs.acumulativo + ' (' + (100 - cs.porcentajeNoAcumulativo) + '%)</td></tr>';
+            } else {
+              generalInfoHtml += '<tr><th>Subtítulos acumulativos (CS=1)</th><td>0 (0%)</td></tr>';
+            }
+          }
+          
+          generalInfoHtml += '</table>';
+          generalInfo.innerHTML = generalInfoHtml;
+        }
+        
+        // Mostrar información de GSI header
+        const gsi = result.analysis.gsiHeader;
+        gsiHeader.innerHTML = `
+          <table>
+            <tr><th>Campo</th><th>Valor</th></tr>
+            <tr><td>Code Page Number</td><td>${gsi.codePageNumber}</td></tr>
+            <tr><td>Disk Format Code</td><td>${gsi.diskFormatCode}</td></tr>
+            <tr><td>Display Standard Code</td><td>${gsi.displayStandardCode}</td></tr>
+            <tr><td>Character Code Table</td><td>${gsi.characterCodeTableNumber}</td></tr>
+            <tr><td>Language Code</td><td>${gsi.languageCode}</td></tr>
+            <tr><td>Original Programme Title</td><td>${gsi.originalProgrammeTitle}</td></tr>
+            <tr><td>Original Episode Title</td><td>${gsi.originalEpisodeTitle}</td></tr>
+            <tr><td>Translated Programme Title</td><td>${gsi.translatedProgrammeTitle}</td></tr>
+            <tr><td>Total Number of TTI Blocks</td><td>${gsi.totalNumberOfTTI}</td></tr>
+            <tr><td>Total Number of Subtitles</td><td>${gsi.totalNumberOfSubtitles}</td></tr>
+          </table>
+        `;
+        
+        // Mostrar muestra de bloques TTI (solo 5 primeros)
+        const maxTTIToShow = Math.min(5, result.analysis.ttiBlocks.length);
+        let ttiHTML = `<p>Mostrando los primeros ${maxTTIToShow} bloques TTI de ${result.analysis.ttiBlocks.length}:</p>`;
+        ttiHTML += '<table><tr><th>Nº</th><th>TC In</th><th>TC Out</th><th>Pos V</th><th>Just</th><th>Texto</th></tr>';
+        
+        for (let i = 0; i < maxTTIToShow; i++) {
+          const tti = result.analysis.ttiBlocks[i];
+          ttiHTML += `
+            <tr>
+              <td>${tti.subtitleNumber}</td>
+              <td>${padZero(tti.timecodeIn.hours)}:${padZero(tti.timecodeIn.minutes)}:${padZero(tti.timecodeIn.seconds)}:${padZero(tti.timecodeIn.frames)}</td>
+              <td>${padZero(tti.timecodeOut.hours)}:${padZero(tti.timecodeOut.minutes)}:${padZero(tti.timecodeOut.seconds)}:${padZero(tti.timecodeOut.frames)}</td>
+              <td>${tti.verticalPosition}</td>
+              <td>${tti.justificationCode}</td>
+              <td>${tti.textPreview}</td>
+            </tr>
+          `;
+        }
+        ttiHTML += '</table>';
+        ttiBlocks.innerHTML = ttiHTML;
+        
+        // Mostrar diagnósticos
+        let diagHTML = '<ul>';
+        result.analysis.diagnostics.forEach(diag => {
+          diagHTML += `<li>${diag}</li>`;
+        });
+        diagHTML += '</ul>';
+        diagnostics.innerHTML = diagHTML;
+        
+        // Verificar formato STL23.01 y mostrar información específica
+        if (gsi.diskFormatCode === "STL23.01") {
+          // Determinar el idioma basado en el Language Code
+          const langCode = gsi.languageCode ? gsi.languageCode.trim() : '';
+          const isPTBR = langCode === '0F';
+          
+          diagnostics.innerHTML += `
+            <div class="alert-box" style="margin-top: 15px;">
+              <h4 style="color: #8a6d3b; margin-top: 0;">Formato STL23.01 Detectado</h4>
+              <p>El archivo usa el formato <strong>STL23.01</strong>, que es una variante no estándar utilizada por algunos editores profesionales como Subtitle Edit.</p>
+              <p>Este formato suele usar un framerate de 23.976 fps, comúnmente utilizado para contenido de cine o streaming.</p>
+              <p><strong>Idioma detectado:</strong> ${isPTBR ? 'Portugués (Brasil)' : 'Español'}</p>
+              <p><strong>Recomendación:</strong> Asegúrese de que su función <code>createLegacySTLHeader</code> esté configurada para usar:</p>
+              <ul>
+                <li>Disk Format Code: <code>STL23.01</code></li>
+                <li>Display Standard Code: <code>0</code> (Open subtitling)</li>
+                <li>Language Code: <code>${isPTBR ? '0F' : '0A'}</code> (${isPTBR ? 'Portugués' : 'Español'})</li>
+                <li>Country Code: <code>${isPTBR ? 'BRA' : 'ARG'}</code></li>
+                <li>Max Chars Per Row: <code>40</code></li>
+                <li>Max Number of Rows: <code>23</code></li>
+              </ul>
+            </div>
+          `;
+        }
+        
+        // Analizar si hay riesgo de subtítulos fusionados
+        if (result.analysis.mergedSubtitlesRisk) {
+          diagnostics.innerHTML += `
+            <div class="error" style="margin-top: 15px; padding: 15px; border: 1px solid #e74c3c;">
+              <h4 style="color: #e74c3c; margin-top: 0;">¡Alerta! Riesgo de subtítulos fusionados</h4>
+              <p>Se ha detectado un patrón que indica que este archivo STL podría mostrarse como un único subtítulo 
+              largo en algunos editores. Esto ocurre cuando los bytes después del terminador ETX (0x03) no son 
+              correctamente manejados.</p>
+              <p><strong>Recomendación:</strong> Asegúrese de que su función <code>createFixedTTIBlock</code> o 
+              <code>createFixedLegacyTTIBlock</code> inicialice el buffer con bytes <code>0x00</code> y 
+              marque correctamente el final del texto con ETX (0x03).</p>
+            </div>
+          `;
+        }
+        
+        // Mostrar análisis de caracteres adicionales después del ETX si existen
+        if (result.analysis.trailingCharacters && result.analysis.trailingCharacters.length > 0) {
+          // Verificar si todos los bytes son 0xFF (lo cual es normal)
+          const allFF = result.analysis.trailingCharacters.every(tc => 
+            tc.trailingBytes.split(', ').every(byte => byte === "0x-1" || byte === "0xFF")
+          );
+          
+          if (allFF) {
+            diagnostics.innerHTML += `
+              <div class="success" style="margin-top: 15px; padding: 10px; border: 1px solid #27ae60; border-radius: 4px;">
+                <h4 style="color: #27ae60; margin-top: 0;">Información: Bytes de relleno después del ETX</h4>
+                <p>Los bytes detectados después del terminador ETX (0x03) son todos 0xFF (valor -1), 
+                lo cual es el relleno estándar para el espacio no utilizado en los bloques TTI y NO representa un problema.</p>
+                <p>Este es el comportamiento esperado y correcto según el estándar STL.</p>
+              </div>
+            `;
+          } else {
+            // Filtrar solo los elementos que tienen bytes problemáticos (diferentes a 0xFF)
+            const problematicTrailingChars = result.analysis.trailingCharacters.filter(tc => {
+              const bytes = tc.trailingBytes.split(', ');
+              return bytes.some(byte => byte !== "0x-1" && byte !== "0xFF");
+            });
+            
+            if (problematicTrailingChars.length > 0) {
+              diagnostics.innerHTML += `
+                <div class="warning" style="margin-top: 15px; padding: 10px; border: 1px solid #f39c12; border-radius: 4px;">
+                  <h4 style="color: #f39c12; margin-top: 0;">¡Alerta! Caracteres adicionales después del terminador ETX</h4>
+                  <p>Se encontraron caracteres adicionales (diferentes a 0xFF) después del terminador ETX (0x03) en los siguientes subtítulos:</p>
+                  <table>
+                    <tr><th>Subtítulo</th><th>Posición ETX</th><th>Caracteres Adicionales</th><th>Bytes (hex)</th></tr>
+                    ${problematicTrailingChars.map(tc => {
+                      // Filtrar solo los bytes que no son 0xFF
+                      const problemBytes = tc.trailingBytes.split(', ').filter(byte => byte !== "0x-1" && byte !== "0xFF");
+                      
+                      return `
+                        <tr>
+                          <td>${tc.subtitleNumber}</td>
+                          <td>${tc.etxPosition}</td>
+                          <td>${problemBytes.length}</td>
+                          <td>${problemBytes.join(', ')}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </table>
+                  <p>Estos caracteres adicionales pueden causar problemas de compatibilidad con algunos reproductores de subtítulos.</p>
+                </div>
+              `;
+            } else {
+              diagnostics.innerHTML += `
+                <div class="success" style="margin-top: 15px; padding: 10px; border: 1px solid #27ae60; border-radius: 4px;">
+                  <h4 style="color: #27ae60; margin-top: 0;">Estructura correcta: Solo bytes de relleno después del ETX</h4>
+                  <p>Los bytes después del terminador ETX (0x03) son todos 0xFF, lo cual es el comportamiento esperado.</p>
+                </div>
+              `;
+            }
+          }
+        }
+        
+        // Mostrar detalles técnicos del GSI
+        if (result.analysis.gsiTechnicalDetails) {
+          var gsiTechHTML = '<table>';
+          for (var key in result.analysis.gsiTechnicalDetails) {
+            gsiTechHTML += '<tr><th>' + key + '</th><td><code>' + result.analysis.gsiTechnicalDetails[key] + '</code></td></tr>';
+          }
+          gsiTechHTML += '</table>';
+          gsiTechnicalDetails.innerHTML = gsiTechHTML;
+        }
+        
+        // Mostrar compatibilidad con editores
+        if (result.analysis.editorCompatibility) {
+          var compatHTML = '<table><tr><th>Editor</th><th>Puntuación</th><th>Comentarios</th></tr>';
+          
+          var editors = {
+            'eztitles': 'EZTitles',
+            'fabSubtitler': 'FAB Subtitler',
+            'wincaps': 'WinCAPS',
+            'subtitleEdit': 'Subtitle Edit'
+          };
+          
+          for (var key in result.analysis.editorCompatibility) {
+            var compat = result.analysis.editorCompatibility[key];
+            var scoreClass = compat.score >= 80 ? 'success' : (compat.score >= 50 ? 'warning' : 'error');
+            
+            compatHTML += '<tr>' +
+              '<td>' + (editors[key] || key) + '</td>' +
+              '<td class="' + scoreClass + '">' + compat.score + '%</td>' +
+              '<td>' + (compat.comments.length > 0 ? compat.comments.join('<br>') : 'Compatible') + '</td>' +
+              '</tr>';
+          }
+          
+          compatHTML += '</table>';
+          editorCompatibility.innerHTML = compatHTML;
+        }
+        
+        // Mostrar detalles técnicos de los bloques TTI
+        if (result.analysis.ttiTechnicalDetails && result.analysis.ttiTechnicalDetails.length > 0) {
+          var ttiTechHTML = '<div class="alert-box">Esta sección muestra los detalles técnicos de los bytes de los primeros bloques TTI.</div>';
+          
+          for (var i = 0; i < result.analysis.ttiTechnicalDetails.length; i++) {
+            var blockDetails = result.analysis.ttiTechnicalDetails[i];
+            
+            ttiTechHTML += '<div class="json-container" style="margin-bottom: 15px;">';
+            ttiTechHTML += '<h5>Bloque TTI #' + blockDetails.blockNumber + ' (SN: ' + blockDetails.subtitleNumber + ')</h5>';
+            
+            // Detalles de bytes como tabla
+            ttiTechHTML += '<table>';
+            for (var key in blockDetails.byteDetails) {
+              ttiTechHTML += '<tr><th>' + key + '</th><td><code>' + blockDetails.byteDetails[key] + '</code></td></tr>';
+            }
+            ttiTechHTML += '</table>';
+            
+            // Añadir el dump hexadecimal del texto
+            ttiTechHTML += '<h6>Contenido de texto (hex dump):</h6>';
+            ttiTechHTML += '<pre>' + blockDetails.textHexDump + '</pre>';
+            
+            ttiTechHTML += '</div>';
+          }
+          
+          ttiTechnicalDetails.innerHTML = ttiTechHTML;
+        }
+        
+        // Guardar el JSON para visualización
+        rawJson.textContent = JSON.stringify(result.analysis, null, 2);
+        
+      } else {
+        analysisStatus.innerHTML = `<div class="error">Error: ${result.error}</div>`;
+      }
+    }
+    
+    function handleAnalysisError(error) {
+      analysisStatus.innerHTML = `<div class="error">Error: ${error.message || error}</div>`;
+    }
+    
+    // Manejadores de resultados - Comparación
+    function handleComparisonSuccess(result) {
+      if (result.success) {
+        diffStatus.innerHTML = '<div class="success">Comparación completada</div>';
+        
+        // Mostrar diferencias generales
+        if (result.comparison.differences.general.length > 0) {
+          let generalHTML = '<ul>';
+          result.comparison.differences.general.forEach(diff => {
+            generalHTML += `<li>${diff}</li>`;
+          });
+          generalHTML += '</ul>';
+          generalDiff.innerHTML = generalHTML;
+        } else {
+          generalDiff.innerHTML = '<p>No se encontraron diferencias generales.</p>';
+        }
+        
+        // Mostrar diferencias en GSI
+        const gsiDiffs = result.comparison.differences.gsiHeader;
+        if (Object.keys(gsiDiffs).length > 0) {
+          let gsiHTML = '<table><tr><th>Campo</th><th>Referencia</th><th>Comparado</th></tr>';
+          for (const [field, values] of Object.entries(gsiDiffs)) {
+            gsiHTML += `
+              <tr>
+                <td>${field}</td>
+                <td class="diff-reference">${values.reference}</td>
+                <td class="diff-compared">${values.compared}</td>
+              </tr>
+            `;
+          }
+          gsiHTML += '</table>';
+          gsiDiff.innerHTML = gsiHTML;
+          
+          // Verificar específicamente el Disk Format Code
+          if (gsiDiffs.diskFormatCode) {
+            if (gsiDiffs.diskFormatCode.reference === "STL23.01" || gsiDiffs.diskFormatCode.compared === "STL23.01") {
+              // Determinar el idioma basado en Language Code
+              const refLangCode = result.comparison.reference.gsiHeader.languageCode ? result.comparison.reference.gsiHeader.languageCode.trim() : '';
+              const compLangCode = result.comparison.compared.gsiHeader.languageCode ? result.comparison.compared.gsiHeader.languageCode.trim() : '';
+              
+              const refIsPTBR = refLangCode === '0F';
+              const compIsPTBR = compLangCode === '0F';
+              
+              gsiDiff.innerHTML += `
+                <div class="alert-box" style="margin-top: 15px;">
+                  <h4 style="color: #8a6d3b; margin-top: 0;">Diferencia en formato STL detectada</h4>
+                  <p>Hay una diferencia en el Disk Format Code. Uno de los archivos usa <strong>STL23.01</strong>, que es una variante no estándar para framerate 23.976 fps.</p>
+                  <p><strong>Idioma en archivo de referencia:</strong> ${refIsPTBR ? 'Portugués (Brasil)' : 'Español'}</p>
+                  <p><strong>Idioma en archivo comparado:</strong> ${compIsPTBR ? 'Portugués (Brasil)' : 'Español'}</p>
+                  <p><strong>Recomendación:</strong> Asegúrese de que ambos archivos usen el mismo formato y configuración de idioma para máxima compatibilidad.</p>
+                </div>
+              `;
+            }
+          }
+          
+        } else {
+          gsiDiff.innerHTML = '<p>No se encontraron diferencias en el encabezado GSI.</p>';
+        }
+        
+        // Mostrar diferencias en bloques TTI
+        const ttiDiffs = result.comparison.differences.ttiBlocks;
+        if (ttiDiffs.length > 0) {
+          let ttiDiffsHTML = '';
+          
+          ttiDiffs.forEach(diff => {
+            ttiDiffsHTML += `<div class="diff-item">`;
+            ttiDiffsHTML += `<div class="diff-title">Subtítulo #${diff.subtitleNumber}</div>`;
+            ttiDiffsHTML += `<div class="diff-content">`;
+            
+            if (diff.textPreview) {
+              ttiDiffsHTML += `
+                <p><strong>Texto:</strong><br>
+                Referencia: <span class="diff-reference">${diff.textPreview.reference}</span><br>
+                Comparado: <span class="diff-compared">${diff.textPreview.compared}</span>
+                </p>
+              `;
+            }
+            
+            if (diff.verticalPosition) {
+              ttiDiffsHTML += `
+                <p><strong>Posición Vertical:</strong>
+                Referencia: <span class="diff-reference">${diff.verticalPosition.reference}</span>,
+                Comparado: <span class="diff-compared">${diff.verticalPosition.compared}</span>
+                </p>
+              `;
+            }
+            
+            if (diff.justificationCode) {
+              ttiDiffsHTML += `
+                <p><strong>Justificación:</strong>
+                Referencia: <span class="diff-reference">${diff.justificationCode.reference}</span>,
+                Comparado: <span class="diff-compared">${diff.justificationCode.compared}</span>
+                </p>
+              `;
+            }
+            
+            if (diff.textDiffs && diff.textDiffs.length > 0) {
+              ttiDiffsHTML += `<p><strong>Diferencias en bytes:</strong></p><ul>`;
+              diff.textDiffs.forEach(textDiff => {
+                ttiDiffsHTML += `
+                  <li>Pos ${textDiff.position}: 
+                  Referencia ${textDiff.reference} → 
+                  Comparado ${textDiff.compared}</li>
+                `;
+              });
+              ttiDiffsHTML += `</ul>`;
+            }
+            
+            // Añadir análisis de caracteres adicionales después del ETX
+            if (diff.trailingChars) {
+              ttiDiffsHTML += `
+                <p class="warning"><strong>¡Caracteres adicionales detectados después del terminador ETX (0x03)!</strong></p>
+                <p>Posición del ETX: ${diff.trailingChars.etxPosition}</p>
+                <p>Número de caracteres adicionales: ${diff.trailingChars.count}</p>
+                <p>Bytes adicionales (hex): ${diff.trailingChars.bytes}</p>
+              `;
+            }
+            
+            ttiDiffsHTML += `</div></div>`;
+          });
+          
+          ttiDiff.innerHTML = ttiDiffsHTML;
+        } else {
+          ttiDiff.innerHTML = '<p>No se encontraron diferencias en los bloques TTI.</p>';
+        }
+        
+        // Añadir sección específica para caracteres adicionales
+        if (result.comparison.trailingCharsAnalysis && result.comparison.trailingCharsAnalysis.length > 0) {
+          let trailingCharsHTML = '<div class="analysis-section">';
+          trailingCharsHTML += '<h4>Análisis de Caracteres Adicionales</h4>';
+          
+          // Verificar si todos los bytes son 0xFF (lo cual es normal)
+          const allFF = result.comparison.trailingCharsAnalysis.every(item => 
+            item.bytes.split(', ').every(byte => byte === "0x-1" || byte === "0xFF")
+          );
+          
+          if (allFF) {
+            trailingCharsHTML += `
+              <div class="success" style="padding: 10px;">
+                <p><strong>Información:</strong> Los caracteres detectados después del ETX son todos 0xFF (valor -1), 
+                lo cual es el relleno estándar para el espacio no utilizado en los bloques TTI y NO representa un problema.</p>
+                <p>Este es el comportamiento esperado y correcto según el estándar STL.</p>
+              </div>
+            `;
+          } else {
+            trailingCharsHTML += '<p>Se detectaron caracteres adicionales (diferentes a 0xFF) después del terminador ETX en los siguientes subtítulos:</p>';
+            trailingCharsHTML += '<table><tr><th>Subtítulo</th><th>Posición ETX</th><th>Caracteres Adicionales</th><th>Bytes (hex)</th></tr>';
+            
+            result.comparison.trailingCharsAnalysis.forEach(item => {
+              // Filtrar solo los bytes que no son 0xFF
+              const problemBytes = item.bytes.split(', ').filter(byte => byte !== "0x-1" && byte !== "0xFF");
+              
+              if (problemBytes.length > 0) {
+                trailingCharsHTML += `
+                  <tr>
+                    <td>${item.subtitleNumber}</td>
+                    <td>${item.etxPosition}</td>
+                    <td>${problemBytes.length}</td>
+                    <td>${problemBytes.join(', ')}</td>
+                  </tr>
+                `;
+              }
+            });
+            
+            trailingCharsHTML += '</table>';
+            trailingCharsHTML += '<p>Estos caracteres adicionales pueden causar problemas de compatibilidad con algunos reproductores de subtítulos.</p>';
+          }
+          
+          trailingCharsHTML += '</div>';
+          
+          // Insertar antes del botón de mostrar JSON completo
+          const parentDiv = diffRawJson.parentElement;
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = trailingCharsHTML;
+          parentDiv.insertBefore(tempDiv.firstChild, showDiffRawBtn);
+        }
+        
+        // Guardar el JSON para visualización
+        diffRawJson.textContent = JSON.stringify(result.comparison, null, 2);
+        
+      } else {
+        diffStatus.innerHTML = `<div class="error">Error: ${result.error}</div>`;
+      }
+    }
+    
+    function handleComparisonError(error) {
+      diffStatus.innerHTML = `<div class="error">Error: ${error.message || error}</div>`;
+    }
+    
+    // Función auxiliar para formatear números
+    function padZero(num) {
+      return num.toString().padStart(2, '0');
+    }
+  </script>
+</body>
+</html> 

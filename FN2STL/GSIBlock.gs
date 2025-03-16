@@ -5,146 +5,113 @@
 
 /**
  * Crea el bloque GSI (General Subtitle Information) para el archivo STL
- * @param {string} title - Título del programa
- * @param {string} country - Código de país (3 caracteres)
- * @param {string} languageCode - Código de idioma (2 caracteres)
- * @param {number} totalSubtitles - Número total de subtítulos
- * @param {boolean} verboseFlag - Activar logs detallados
- * @return {Uint8Array} - Bloque GSI como array de bytes
+ * con formato NTSC adaptado para 24fps y mejor compatibilidad con Subtitle Edit
+ * 
+ * @param {Object} options - Opciones para el bloque GSI
+ * @param {string} options.programName - Nombre del programa (max 32 chars)
+ * @param {string} options.countryOrigin - Código ISO del país de origen (3 chars)
+ * @param {string} options.languageCode - Código de idioma (2 chars)
+ * @param {number} options.subtitleCount - Número de subtítulos en el archivo
+ * @param {boolean} options.verboseFlag - Habilitar logs detallados
+ * @return {Uint8Array} - Bloque GSI formateado (1024 bytes)
  */
-function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFlag) {
-  if (verboseFlag) Logger.log(`Creando bloque GSI para "${title}"`);
-  
-  // Crear un buffer de 1024 bytes (tamaño del bloque GSI)
-  const gsiBlock = new Uint8Array(1024);
-  
-  // Inicializar con espacios (código ASCII 32)
-  for (let i = 0; i < gsiBlock.length; i++) {
-    gsiBlock[i] = 32; // Espacio en ASCII
-  }
-  
-  // 1. Código de Página de Caracteres (CPN: Code Page Number)
-  // Usar "865" (Nordic) que tiene mejor compatibilidad con caracteres españoles en Subtitle Edit
-  writeStringToBuffer(gsiBlock, "865", 0, 3);
-  
-  // 2. Código de Disco (DFC: Disk Format Code)
-  // "STL25.01" para 25 fps (formato PAL) - Compatible con Subtitle Edit
-  writeStringToBuffer(gsiBlock, "STL25.01", 3, 8);
-  
-  // 3. Código de Estándar de Visualización (DSC: Display Standard Code)
-  // 1 = nivel 1 teletext - mejor para Subtitle Edit
-  writeStringToBuffer(gsiBlock, "1", 11, 1);
-  
-  // 4. Código de Tabla de Caracteres (CCT: Character Code Table)
-  // 01 = Latin/ISO 8859-1 (mejor para caracteres españoles)
-  writeStringToBuffer(gsiBlock, "01", 12, 2);
-  
-  // 5. Código de Idioma (LC: Language Code)
-  writeStringToBuffer(gsiBlock, languageCode, 14, 2);
-  
-  // 6. Título del Programa Original (OPT: Original Programme Title)
-  const truncatedTitle = title.substring(0, Math.min(title.length, 32));
-  writeStringToBuffer(gsiBlock, truncatedTitle, 16, 32);
-  
-  // 7. Título del Episodio Original (OET: Original Episode Title)
-  writeStringToBuffer(gsiBlock, "", 48, 32);
-  
-  // 8. Título del Programa Traducido (TPT: Translated Programme Title)
-  writeStringToBuffer(gsiBlock, truncatedTitle, 80, 32);
-  
-  // 9. Título del Episodio Traducido (TET: Translated Episode Title)
-  writeStringToBuffer(gsiBlock, "", 112, 32);
-  
-  // 10. Nombre del Traductor (TN: Translator's Name)
-  writeStringToBuffer(gsiBlock, "DUBAPP", 144, 32);
-  
-  // 11. Detalles de Contacto del Traductor (TCD: Translator's Contact Details)
-  writeStringToBuffer(gsiBlock, "", 176, 32);
-  
-  // 12. Referencia de la Lista de Subtítulos (SLR: Subtitle List Reference)
-  writeStringToBuffer(gsiBlock, "", 208, 16);
-  
-  // 13. Fecha de Creación (CD: Creation Date)
-  const now = new Date();
-  const year = now.getFullYear().toString().slice(-2);
-  const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  const day = now.getDate().toString().padStart(2, '0');
-  writeStringToBuffer(gsiBlock, `${year}${month}${day}`, 224, 6);
-  
-  // 14. Fecha de Revisión (RD: Revision Date)
-  writeStringToBuffer(gsiBlock, `${year}${month}${day}`, 230, 6);
-  
-  // 15. Número de Revisión (RN: Revision Number)
-  writeStringToBuffer(gsiBlock, "01", 236, 2);
-  
-  // 16. Número Total de Bloques TTI (TNB: Total Number of TTI Blocks)
-  const ttiCountStr = totalSubtitles.toString().padStart(5, '0');
-  writeStringToBuffer(gsiBlock, ttiCountStr, 238, 5);
-  
-  // 17. Número Total de Subtítulos (TNS: Total Number of Subtitles)
-  // Igual que TNB en nuestro caso
-  writeStringToBuffer(gsiBlock, ttiCountStr, 243, 5);
-  
-  // 18. Número Total de Grupos de Subtítulos (TNG: Total Number of Subtitle Groups)
-  writeStringToBuffer(gsiBlock, "001", 248, 3);
-  
-  // 19. Número Máximo de Caracteres (MNC: Maximum Number of Characters)
-  writeStringToBuffer(gsiBlock, "40", 251, 2);
-  
-  // 20. Número Máximo de Filas (MNR: Maximum Number of Rows)
-  writeStringToBuffer(gsiBlock, "02", 253, 2);
-  
-  // 21. Estado del Código de Tiempo (TCS: Time Code Status)
-  // 1 = Time code relates to the program
-  writeStringToBuffer(gsiBlock, "1", 255, 1);
-  
-  // 22. Código de Tiempo de Inicio (TCP: Time Code: Start-of-Programme)
-  writeStringToBuffer(gsiBlock, "00000000", 256, 8);
-  
-  // 23. Código de Tiempo de Fin (TCF: Time Code: First In-Cue)
-  writeStringToBuffer(gsiBlock, "00000000", 264, 8);
-  
-  // 24. Código de País (CO: Country of Origin)
-  writeStringToBuffer(gsiBlock, country.toUpperCase().padEnd(3, ' '), 272, 3);
-  
-  // 25. Tipo de Subtítulos (TND: Type of Subtitling)
-  // 0 = Undefined
-  writeStringToBuffer(gsiBlock, "0", 275, 1);
+function createGSIBlock(options) {
+  const {
+    programName = "Default Program",
+    countryOrigin = "ARG",
+    languageCode = "0A", // Español
+    subtitleCount = 0,
+    verboseFlag = false
+  } = options || {};
   
   if (verboseFlag) {
-    Logger.log(`Bloque GSI creado correctamente para ${totalSubtitles} subtítulos`);
-    
-    // Log de los campos principales
-    Logger.log(`- CPN: ${String.fromCharCode.apply(null, gsiBlock.slice(0, 3))}`);
-    Logger.log(`- DFC: ${String.fromCharCode.apply(null, gsiBlock.slice(3, 11))}`);
-    Logger.log(`- DSC: ${String.fromCharCode.apply(null, gsiBlock.slice(11, 12))}`);
-    Logger.log(`- CCT: ${String.fromCharCode.apply(null, gsiBlock.slice(12, 14))}`);
-    Logger.log(`- LC: ${String.fromCharCode.apply(null, gsiBlock.slice(14, 16))}`);
-    Logger.log(`- OPT: ${String.fromCharCode.apply(null, gsiBlock.slice(16, 48)).trim()}`);
-    Logger.log(`- TNB: ${String.fromCharCode.apply(null, gsiBlock.slice(238, 243))}`);
-    Logger.log(`- CO: ${String.fromCharCode.apply(null, gsiBlock.slice(272, 275))}`);
+    Logger.log("=== Creando Bloque GSI ===");
+    Logger.log(`Programa: ${programName}`);
+    Logger.log(`País: ${countryOrigin}`);
+    Logger.log(`Idioma: ${languageCode}`);
+    Logger.log(`Subtítulos: ${subtitleCount}`);
   }
   
-  return gsiBlock;
+  // Crear un buffer de 1024 bytes lleno de espacios (0x20)
+  const buffer = new Uint8Array(1024).fill(0x20);
+  
+  // ===== ENCABEZADO DE ARCHIVO =====
+  
+  // Código de página de caracteres (CPN) - byte 0-2 - "437" (US-ASCII)
+  writeStringToBuffer(buffer, 0, "437");
+  
+  // Código de formato de disco (DFC) - bytes 3-10 - "STL24.01" (24fps)
+  writeStringToBuffer(buffer, 3, "STL24.01");
+  
+  // Código estándar de pantalla (DSC) - byte 11 - "0" (Open subtitling)
+  buffer[11] = 0x30; // '0' (Open subtitling)
+  
+  // Código de tabla de caracteres (CCT) - bytes 12-13 - "00" (Latin/CP437)
+  writeStringToBuffer(buffer, 12, "00");
+  
+  // Código de idioma (LC) - bytes 14-15 - "0A" (Español)
+  writeStringToBuffer(buffer, 14, languageCode);
+  
+  // ===== INFORMACIÓN DEL PROGRAMA =====
+  
+  // Título original del programa - bytes 16-47
+  writeStringToBuffer(buffer, 16, programName.substring(0, 32).padEnd(32, ' '));
+  
+  // Título original de episodio - bytes 48-79
+  writeStringToBuffer(buffer, 48, "");
+  
+  // Título traducido - bytes 80-111
+  writeStringToBuffer(buffer, 80, "");
+  
+  // Información adicional - bytes 112-143
+  writeStringToBuffer(buffer, 112, "");
+  
+  // ===== INFORMACIÓN TÉCNICA =====
+  
+  // Código de país de origen - bytes 274-276
+  writeStringToBuffer(buffer, 274, countryOrigin);
+  
+  // Fecha de creación (YYMMDD) - bytes 304-309
+  const now = new Date();
+  const year = String(now.getFullYear()).substring(2);
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  writeStringToBuffer(buffer, 304, `${year}${month}${day}`);
+  
+  // Número de subtítulos en el archivo - bytes 330-334
+  const subtitleCountStr = String(subtitleCount).padStart(5, '0');
+  writeStringToBuffer(buffer, 330, subtitleCountStr);
+  
+  // Código de inicio de TTI blocks - bytes 1012-1023
+  writeStringToBuffer(buffer, 1020, "STL");
+  buffer[1023] = 0x31; // '1'
+  
+  if (verboseFlag) {
+    Logger.log("Bloque GSI creado con éxito");
+    Logger.log(`Código de página: 437`);
+    Logger.log(`Formato de disco: STL24.01`);
+    Logger.log(`Estándar de pantalla: 0 (Open subtitling)`);
+    Logger.log(`Tabla de caracteres: 00 (Latin/CP437)`);
+    Logger.log(`Fecha de creación: ${year}${month}${day}`);
+    Logger.log(`Número de subtítulos: ${subtitleCountStr}`);
+  }
+  
+  return buffer;
 }
 
 /**
  * Escribe una cadena en el bloque GSI
  * 
  * @param {Uint8Array} block - Bloque GSI
- * @param {string} value - Valor a escribir
  * @param {number} offset - Posición de inicio
- * @param {number} length - Longitud del campo
+ * @param {string} value - Valor a escribir
  */
-function writeStringToBuffer(block, value, offset, length) {
-  // Si el valor es nulo o undefined, usar cadena vacía
-  value = value || "";
-  
+function writeStringToBuffer(block, offset, value) {
   // Convertir el valor a string y limitar a la longitud máxima
-  const strValue = String(value).substring(0, length);
+  const strValue = String(value).substring(0, 32);
   
   // Escribir cada carácter en el bloque
-  for (let i = 0; i < length; i++) {
+  for (let i = 0; i < 32; i++) {
     if (i < strValue.length) {
       // Si hay un carácter en esta posición, escribirlo
       block[offset + i] = strValue.charCodeAt(i);

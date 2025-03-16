@@ -5,335 +5,323 @@
 
 /**
  * Crea un bloque TTI (Text and Timing Information) para un subtítulo
- * @param {number} subtitleNumber - Número de subtítulo
- * @param {string} startTime - Código de tiempo de inicio (HH:MM:SS:FF)
- * @param {string} endTime - Código de tiempo de fin (HH:MM:SS:FF)
- * @param {string} text - Texto del subtítulo
- * @param {boolean} verboseFlag - Activar logs detallados
- * @return {Uint8Array} - Bloque TTI como array de bytes
+ * @param {Object} options - Opciones para el bloque TTI
+ * @param {number} options.subtitleNumber - Número de subtítulo (1-based)
+ * @param {string} options.timecodeIn - Código de tiempo de entrada (formato HH:MM:SS:FF)
+ * @param {string} options.timecodeOut - Código de tiempo de salida (formato HH:MM:SS:FF)
+ * @param {string} options.text - Texto del subtítulo
+ * @param {boolean} options.verboseFlag - Activar logs detallados
+ * @return {Uint8Array} - Bloque TTI formateado (128 bytes)
  */
-function createTTIBlock(subtitleNumber, startTime, endTime, text, verboseFlag) {
+function createTTIBlock(options) {
+  const {
+    subtitleNumber,
+    timecodeIn,
+    timecodeOut,
+    text,
+    verboseFlag = false
+  } = options || {};
+  
+  if (verboseFlag) {
+    Logger.log(`=== Creando bloque TTI #${subtitleNumber} ===`);
+    Logger.log(`Entrada: ${timecodeIn}`);
+    Logger.log(`Salida: ${timecodeOut}`);
+    Logger.log(`Texto: "${text}"`);
+  }
+  
+  // Crear un buffer de 128 bytes (tamaño del bloque TTI) con valores 0x20 (espacio)
+  const ttiBlock = new Uint8Array(128).fill(0x20);
+  
   try {
-    if (verboseFlag) {
-      Logger.log(`Creando bloque TTI para subtítulo #${subtitleNumber}`);
-      Logger.log(`- Timecode inicio: ${startTime}`);
-      Logger.log(`- Timecode fin: ${endTime}`);
-      Logger.log(`- Texto: "${text}"`);
-    }
+    // 1. Subtítulo Group Number (SGN) - 1 byte - Usamos 1 por defecto
+    ttiBlock[0] = 0x00;
     
-    // Crear un buffer de 128 bytes (tamaño del bloque TTI)
-    const ttiBlock = new Uint8Array(128);
+    // 2. Subtítulo Number (SN) - 2 bytes - BCD
+    const snBytes = convertNumberToBCD(subtitleNumber, 2);
+    ttiBlock[1] = snBytes[0];
+    ttiBlock[2] = snBytes[1];
     
-    // Inicializar con espacios (código ASCII 32)
-    for (let i = 0; i < ttiBlock.length; i++) {
-      ttiBlock[i] = 32; // Espacio en ASCII
-    }
-    
-    // 1. Número de subtítulo (SGN: Subtitle Group Number) - 1 byte
-    // Siempre 0 para nuestro caso
-    ttiBlock[0] = 0;
-    
-    // 2. Número de subtítulo (SN: Subtitle Number) - 2 bytes
-    // Validar que el número de subtítulo esté en el rango correcto (1-65535)
-    if (subtitleNumber < 1 || subtitleNumber > 65535) {
-      if (verboseFlag) Logger.log(`Error: Número de subtítulo fuera de rango: ${subtitleNumber}`);
-      subtitleNumber = Math.max(1, Math.min(subtitleNumber, 65535));
-    }
-    
-    // Escribir el número de subtítulo en formato little-endian
-    ttiBlock[1] = subtitleNumber & 0xFF;
-    ttiBlock[2] = (subtitleNumber >> 8) & 0xFF;
-    
-    // 3. Posición de extensión (EBN: Extension Block Number) - 1 byte
-    // Siempre 255 (0xFF) para indicar que no hay extensión
+    // 3. Extension Block Number (EBN) - 1 byte - Usamos 0 (sin extensión)
     ttiBlock[3] = 0xFF;
     
-    // 4. Número de cuadro (CS: Cumulative Status) - 1 byte
-    // Siempre 0 para nuestro caso
-    ttiBlock[4] = 0;
+    // 4. Cumulative Status (CS) - 1 byte - Usamos 0 (no acumulativo)
+    ttiBlock[4] = 0x00;
     
-    // 5-8. Código de tiempo de inicio (TCi: Time Code In) - 4 bytes
-    // Convertir el código de tiempo a formato BCD
-    const startTimeBytes = convertTimecodeToBytes(startTime, verboseFlag);
-    ttiBlock[5] = startTimeBytes[0]; // Horas
-    ttiBlock[6] = startTimeBytes[1]; // Minutos
-    ttiBlock[7] = startTimeBytes[2]; // Segundos
-    ttiBlock[8] = startTimeBytes[3]; // Frames
-    
-    // 9-12. Código de tiempo de fin (TCo: Time Code Out) - 4 bytes
-    const endTimeBytes = convertTimecodeToBytes(endTime, verboseFlag);
-    ttiBlock[9] = endTimeBytes[0]; // Horas
-    ttiBlock[10] = endTimeBytes[1]; // Minutos
-    ttiBlock[11] = endTimeBytes[2]; // Segundos
-    ttiBlock[12] = endTimeBytes[3]; // Frames
-    
-    // 13. Formato vertical (VP: Vertical Position) - 1 byte
-    // Posición 18 (cerca de la parte inferior de la pantalla)
-    ttiBlock[13] = 18;
-    
-    // 14. Justificación (JC: Justification Code) - 1 byte
-    // 2 = centrado
-    ttiBlock[14] = 2;
-    
-    // 15. Comentario (CF: Comment Flag) - 1 byte
-    // 0 = no es un comentario
-    ttiBlock[15] = 0;
-    
-    // 16-128. Texto del subtítulo (TF: Text Field) - 112 bytes
-    // Procesar el texto para el formato STL
-    const processedText = processTextForSTL(text, verboseFlag);
-    
-    if (verboseFlag) {
-      Logger.log(`Texto procesado: "${processedText}"`);
+    // 5. Time Code In (TCI) - 4 bytes - BCD
+    const tciBytes = convertTimecodeToBytes(timecodeIn, verboseFlag);
+    for (let i = 0; i < 4; i++) {
+      ttiBlock[5 + i] = tciBytes[i];
     }
+    
+    // 6. Time Code Out (TCO) - 4 bytes - BCD
+    const tcoBytes = convertTimecodeToBytes(timecodeOut, verboseFlag);
+    for (let i = 0; i < 4; i++) {
+      ttiBlock[9 + i] = tcoBytes[i];
+    }
+    
+    // 7. Vertical Position (VP) - 1 byte - Posición vertical en pantalla (0-23)
+    ttiBlock[13] = 0x16; // Valor típico para subtítulos en parte inferior
+    
+    // 8. Justification Code (JC) - 1 byte - Centrado (0x02)
+    ttiBlock[14] = 0x02;
+    
+    // 9. Comment Flag (CF) - 1 byte - No es comentario (0)
+    ttiBlock[15] = 0x00;
+    
+    // 10. Texto del subtítulo - 112 bytes
+    // Usar nuestra función optimizada para el manejo de caracteres especiales
+    const processedText = processTextForSTL(text, verboseFlag);
     
     // Escribir el texto procesado en el bloque TTI
     for (let i = 0; i < processedText.length && i < 112; i++) {
-      ttiBlock[16 + i] = processedText.charCodeAt(i);
+      ttiBlock[16 + i] = processedText[i];
     }
     
     if (verboseFlag) {
-      // Mostrar los primeros 20 bytes y los últimos 8 bytes del bloque TTI para depuración
-      let blockDebug = "Primeros 20 bytes: ";
-      for (let i = 0; i < 20; i++) {
-        blockDebug += ttiBlock[i].toString(16).padStart(2, '0') + " ";
+      let hexOutput = "";
+      for (let i = 0; i < 32; i++) {
+        hexOutput += ttiBlock[i].toString(16).padStart(2, '0') + " ";
       }
-      blockDebug += "... Últimos 8 bytes: ";
-      for (let i = 120; i < 128; i++) {
-        blockDebug += ttiBlock[i].toString(16).padStart(2, '0') + " ";
-      }
-      Logger.log(blockDebug);
+      Logger.log(`TTI Block Header (hex): ${hexOutput}`);
+      Logger.log(`Bloque TTI #${subtitleNumber} creado correctamente`);
     }
     
     return ttiBlock;
-  } catch (e) {
-    Logger.log(`Error al crear bloque TTI: ${e.message}`);
-    // Devolver un bloque vacío en caso de error
-    return new Uint8Array(128);
-  }
-}
-
-/**
- * Convierte un código de tiempo en formato HH:MM:SS:FF a un array de 4 bytes
- * siguiendo la especificación del formato EBU STL
- * 
- * @param {string} timecode - Código de tiempo en formato HH:MM:SS:FF
- * @param {boolean} verboseFlag - Activar logs detallados
- * @return {Uint8Array} Array de 4 bytes con el código de tiempo
- */
-function convertTimecodeToBytes(timecode, verboseFlag) {
-  // Array de 4 bytes para almacenar el timecode en formato BCD (Binary Coded Decimal)
-  const bytes = new Uint8Array(4);
-  
-  // Validación básica del timecode
-  if (!timecode || typeof timecode !== 'string') {
-    Logger.log(`Error: Timecode inválido (no es string): ${timecode}`);
-    return bytes; // Devolver 00:00:00:00 en caso de error
-  }
-  
-  try {
-    // Normalizar formato del timecode para asegurar HH:MM:SS:FF
-    let normalizedTimecode = timecode;
     
-    // Reemplazar puntos o comas por dos puntos en los primeros grupos
-    normalizedTimecode = normalizedTimecode.replace(/[.,]/g, ':');
-    
-    // Separar por dos puntos
-    const parts = normalizedTimecode.split(':');
-    
-    if (parts.length < 3) {
-      Logger.log(`Error: Formato de timecode incorrecto (no suficientes partes): ${timecode}`);
-      return bytes;
-    }
-    
-    // Extraer componentes: horas, minutos, segundos, frames
-    let hours = parseInt(parts[0], 10);
-    let minutes = parseInt(parts[1], 10);
-    let seconds = parseInt(parts[2], 10);
-    let frames = parts.length > 3 ? parseInt(parts[3], 10) : 0;
-    
-    // Validar rangos (según especificación EBU STL)
-    if (isNaN(hours)) hours = 0;
-    if (hours > 23) hours = 23;
-    
-    if (isNaN(minutes)) minutes = 0;
-    if (minutes > 59) minutes = 59;
-    
-    if (isNaN(seconds)) seconds = 0;
-    if (seconds > 59) seconds = 59;
-    
-    if (isNaN(frames)) frames = 0;
-    
-    // Para STL25.01 (PAL):
-    // - Los frames en el archivo deben estar entre 0-24 
-    // - Subtitle Edit los muestra convertidos a milisegundos (1 frame = 40ms)
-    if (frames > 24) frames = 24;
-    
-    // Ajuste para compatibilidad con Subtitle Edit
-    if (frames == 24) frames = 23; // Evita problemas en límites de frames
-    
-    // Para debug: mostrar el timecode normalizado
-    if (verboseFlag) {
-      Logger.log(`Convertido timecode ${timecode} a componentes: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`);
-    }
-    
-    // Codificación BCD estricta según EBU STL
-    // Cada byte contiene dos dígitos en formato BCD
-    // Primera parte: decenas en los bits 7-4, unidades en los bits 3-0
-    bytes[0] = (Math.floor(hours / 10) << 4) | (hours % 10);
-    bytes[1] = (Math.floor(minutes / 10) << 4) | (minutes % 10);
-    bytes[2] = (Math.floor(seconds / 10) << 4) | (seconds % 10);
-    bytes[3] = (Math.floor(frames / 10) << 4) | (frames % 10);
-    
-    // El último bit del tercer byte (segundos) representa si es drop-frame
-    // Para PAL (25fps), siempre debe ser 0
-    bytes[2] &= 0x7F; // Asegurar drop frame bit = 0
-    
-    if (verboseFlag) {
-      Logger.log(`Bytes de timecode (BCD): [${bytes[0].toString(16).padStart(2, '0')}, ${bytes[1].toString(16).padStart(2, '0')}, ${bytes[2].toString(16).padStart(2, '0')}, ${bytes[3].toString(16).padStart(2, '0')}]`);
-    }
-    
-    return bytes;
   } catch (error) {
-    Logger.log(`Error al convertir timecode: ${error.message} para ${timecode}`);
-    return new Uint8Array(4);
+    if (verboseFlag) {
+      Logger.log(`Error al crear bloque TTI: ${error.message}`);
+    }
+    // Devolver un bloque vacío en caso de error
+    return new Uint8Array(128).fill(0x20);
   }
 }
 
 /**
- * Procesa el texto para el formato STL
- * @param {string} text - Texto del subtítulo
- * @param {boolean} verboseFlag - Activar logs detallados
- * @return {string} - Texto procesado
+ * Convierte un número a formato BCD (Binary Coded Decimal)
+ * @param {number} number - Número a convertir
+ * @param {number} byteLength - Longitud del resultado en bytes
+ * @return {Uint8Array} - Representación BCD del número
  */
-function processTextForSTL(text, verboseFlag) {
-  if (!text) return "";
+function convertNumberToBCD(number, byteLength) {
+  const result = new Uint8Array(byteLength);
+  const str = number.toString().padStart(byteLength * 2, '0');
   
-  try {
-    // 1. Reemplazar caracteres especiales
-    let processedText = mapSpecialCharacters(text);
-    
-    // 2. Manejar saltos de línea
-    // En STL, el salto de línea se representa con el carácter 0x8A
-    processedText = processedText.replace(/\r\n|\r|\n/g, String.fromCharCode(0x8A));
-    
-    // 3. Limitar a 2 líneas como máximo
-    const lines = processedText.split(String.fromCharCode(0x8A));
-    if (lines.length > 2) {
-      if (verboseFlag) Logger.log(`Advertencia: El subtítulo tiene más de 2 líneas. Se truncará.`);
-      processedText = lines.slice(0, 2).join(String.fromCharCode(0x8A));
-    }
-    
-    // Ya no truncamos el texto a 40 caracteres por línea
-    // Dejamos que el programa que lee el STL maneje esto según sus propios estándares
-    
-    // 5. Terminar el texto con un carácter de fin de texto (0x8F)
-    processedText += String.fromCharCode(0x8F);
-    
-    return processedText;
-  } catch (e) {
-    if (verboseFlag) Logger.log(`Error al procesar texto para STL: ${e.message}`);
-    return "";
-  }
-}
-
-/**
- * Mapea caracteres especiales a sus equivalentes según el estándar EBU
- * @param {string} text - Texto a procesar
- * @return {string} - Texto con caracteres especiales mapeados
- */
-function mapSpecialCharacters(text) {
-  if (!text) return "";
-  
-  if (verboseFlag) {
-    Logger.log(`Mapeando caracteres especiales de: "${text}"`);
-  }
-  
-  // Tabla de mapeo para caracteres especiales
-  // Usamos una versión simplificada del mapeo directo al código byte ISO 8859-1
-  // para máxima compatibilidad con Subtitle Edit
-  const charMap = {
-    // Vocales acentuadas en español - ISO 8859-1 códigos directos
-    'á': '\xE1', // á (ISO-8859-1: 225)
-    'é': '\xE9', // é (ISO-8859-1: 233)
-    'í': '\xED', // í (ISO-8859-1: 237)
-    'ó': '\xF3', // ó (ISO-8859-1: 243)
-    'ú': '\xFA', // ú (ISO-8859-1: 250)
-    'Á': '\xC1', // Á (ISO-8859-1: 193)
-    'É': '\xC9', // É (ISO-8859-1: 201)
-    'Í': '\xCD', // Í (ISO-8859-1: 205)
-    'Ó': '\xD3', // Ó (ISO-8859-1: 211)
-    'Ú': '\xDA', // Ú (ISO-8859-1: 218)
-    
-    // Otros caracteres especiales españoles
-    'ñ': '\xF1', // ñ (ISO-8859-1: 241)
-    'Ñ': '\xD1', // Ñ (ISO-8859-1: 209)
-    'ü': '\xFC', // ü (ISO-8859-1: 252)
-    'Ü': '\xDC', // Ü (ISO-8859-1: 220)
-    
-    // Signos de puntuación españoles
-    '¿': '\xBF', // ¿ (ISO-8859-1: 191)
-    '¡': '\xA1', // ¡ (ISO-8859-1: 161)
-    
-    // Caracteres especiales portugueses
-    'ç': '\xE7', // ç (ISO-8859-1: 231)
-    'Ç': '\xC7', // Ç (ISO-8859-1: 199)
-    'ã': '\xE3', // ã (ISO-8859-1: 227)
-    'Ã': '\xC3', // Ã (ISO-8859-1: 195)
-    'õ': '\xF5', // õ (ISO-8859-1: 245)
-    'Õ': '\xD5', // Õ (ISO-8859-1: 213)
-    'â': '\xE2', // â (ISO-8859-1: 226)
-    'Â': '\xC2', // Â (ISO-8859-1: 194)
-    'ê': '\xEA', // ê (ISO-8859-1: 234)
-    'Ê': '\xCA', // Ê (ISO-8859-1: 202)
-    'ô': '\xF4', // ô (ISO-8859-1: 244)
-    'Ô': '\xD4', // Ô (ISO-8859-1: 212)
-    
-    // Símbolos comunes
-    '°': '\xB0', // grados (ISO-8859-1: 176)
-    '®': '\xAE', // registered (ISO-8859-1: 174)
-    '©': '\xA9', // copyright (ISO-8859-1: 169)
-    
-    // Caracteres que necesitan sustitución simple
-    '…': '...',
-    '—': '-',
-    '–': '-',
-    '"': '"',
-    '"': '"',
-    "'": "'",
-    "'": "'",
-    '€': 'EUR',
-    '£': '#'
-  };
-  
-  // Reemplazar caracteres especiales
-  let result = text;
-  
-  // Convertir el texto a representación binaria para depuración
-  if (verboseFlag) {
-    let bytesString = "";
-    for (let i = 0; i < text.length; i++) {
-      bytesString += text.charCodeAt(i).toString(16).padStart(2, '0') + ' ';
-    }
-    Logger.log(`Bytes originales: ${bytesString}`);
-  }
-  
-  // Reemplazar cada carácter especial usando string directo en lugar de fromCharCode
-  for (const [original, replacement] of Object.entries(charMap)) {
-    // Usar una expresión regular con la bandera 'g' para reemplazar todas las ocurrencias
-    const regex = new RegExp(original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-    result = result.replace(regex, replacement);
-  }
-  
-  // Mostrar el resultado final para depuración
-  if (verboseFlag) {
-    let bytesString = "";
-    for (let i = 0; i < result.length; i++) {
-      bytesString += result.charCodeAt(i).toString(16).padStart(2, '0') + ' ';
-    }
-    Logger.log(`Bytes mapeados: ${bytesString}`);
-    Logger.log(`Resultado del mapeo: "${result}"`);
+  for (let i = 0; i < byteLength; i++) {
+    const highNibble = parseInt(str.charAt(i * 2), 10);
+    const lowNibble = parseInt(str.charAt(i * 2 + 1), 10);
+    result[i] = (highNibble << 4) | lowNibble;
   }
   
   return result;
+}
+
+/**
+ * Convierte un código de tiempo al formato de bytes BCD para STL
+ * Optimizado para 24fps
+ * @param {string} timecode - Código de tiempo en formato HH:MM:SS:FF
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Uint8Array} - Representación en bytes del código de tiempo
+ */
+function convertTimecodeToBytes(timecode, verboseFlag) {
+  // Resultado: 4 bytes para HH:MM:SS:FF en formato BCD
+  const result = new Uint8Array(4);
+  
+  try {
+    if (!timecode) {
+      if (verboseFlag) Logger.log("Timecode vacío o nulo, retornando 00:00:00:00");
+      return result; // Devolver 00:00:00:00
+    }
+    
+    if (verboseFlag) Logger.log(`Convirtiendo timecode a bytes: ${timecode}`);
+    
+    // Normalizar el formato y extraer componentes
+    const parts = timecode.replace(/[;.,]/g, ':').split(':');
+    
+    // Debe tener exactamente 4 partes: HH:MM:SS:FF
+    if (parts.length !== 4) {
+      if (verboseFlag) Logger.log(`Formato de timecode incorrecto: ${timecode}, se esperan 4 componentes`);
+      return result; // Devolver 00:00:00:00
+    }
+    
+    // Convertir cada componente a entero
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    const seconds = parseInt(parts[2], 10);
+    let frames = parseInt(parts[3], 10);
+    
+    // Validar rangos (adaptado para 24fps)
+    if (hours < 0 || hours > 23) {
+      if (verboseFlag) Logger.log(`Horas fuera de rango (0-23): ${hours}`);
+      return result;
+    }
+    
+    if (minutes < 0 || minutes > 59) {
+      if (verboseFlag) Logger.log(`Minutos fuera de rango (0-59): ${minutes}`);
+      return result;
+    }
+    
+    if (seconds < 0 || seconds > 59) {
+      if (verboseFlag) Logger.log(`Segundos fuera de rango (0-59): ${seconds}`);
+      return result;
+    }
+    
+    // Para 24fps, frames debe estar entre 0-23
+    if (frames < 0 || frames > 23) {
+      if (verboseFlag) Logger.log(`Frames fuera de rango para 24fps (0-23): ${frames}, ajustando...`);
+      frames = Math.max(0, Math.min(frames, 23));
+    }
+    
+    // Convertir cada componente a BCD
+    result[0] = (Math.floor(hours / 10) << 4) | (hours % 10);
+    result[1] = (Math.floor(minutes / 10) << 4) | (minutes % 10);
+    result[2] = (Math.floor(seconds / 10) << 4) | (seconds % 10);
+    result[3] = (Math.floor(frames / 10) << 4) | (frames % 10);
+    
+    if (verboseFlag) {
+      const hexOutput = Array.from(result).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      Logger.log(`Timecode convertido a bytes BCD: ${hexOutput}`);
+    }
+    
+    return result;
+    
+  } catch (error) {
+    if (verboseFlag) Logger.log(`Error al convertir timecode: ${error.message}`);
+    return result; // Devolver 00:00:00:00 en caso de error
+  }
+}
+
+/**
+ * Procesa texto para formato STL con mejor manejo de caracteres especiales
+ * @param {string} text - Texto del subtítulo
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Uint8Array} - Array de bytes procesados
+ */
+function processTextForSTL(text, verboseFlag) {
+  if (!text) return new Uint8Array(0);
+  if (verboseFlag) Logger.log(`Procesando texto para STL: "${text}"`);
+  
+  // Separar en líneas si hay saltos de línea
+  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+  const maxLines = 2; // Máximo 2 líneas por subtítulo
+  
+  if (verboseFlag && lines.length > maxLines) {
+    Logger.log(`Advertencia: Más de ${maxLines} líneas detectadas, se truncará a ${maxLines} líneas`);
+  }
+  
+  // Tomar solo las primeras 2 líneas de subtítulos
+  const processedLines = lines.slice(0, maxLines);
+  
+  // Procesar cada línea y convertir caracteres especiales
+  let processedText = "";
+  for (let i = 0; i < processedLines.length; i++) {
+    // Añadir la línea procesada
+    processedText += processedLines[i];
+    
+    // Añadir retorno de carro si no es la última línea
+    if (i < processedLines.length - 1) {
+      processedText += "\r\n";
+    }
+  }
+  
+  // Procesar caracteres especiales y convertir a bytes según CP437
+  const bytes = processSpecialCharsForSTL(processedText, verboseFlag);
+  
+  // Añadir carácter de fin de texto (0x8F según EBU)
+  const result = new Uint8Array(bytes.length + 1);
+  result.set(bytes, 0);
+  result[bytes.length] = 0x8F; // Carácter de fin de texto
+  
+  if (verboseFlag) {
+    Logger.log(`Texto procesado con ${result.length} bytes (incluyendo EOT)`);
+  }
+  
+  return result;
+}
+
+/**
+ * Procesa caracteres especiales para STL usando CP437
+ * @param {string} text - Texto a procesar
+ * @param {boolean} verboseFlag - Activar logs detallados
+ * @return {Uint8Array} - Array de bytes de caracteres mapeados
+ */
+function processSpecialCharsForSTL(text, verboseFlag) {
+  if (!text) return new Uint8Array(0);
+  
+  const bytes = new Uint8Array(text.length);
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charAt(i);
+    const code = mapCharToCP437(char);
+    bytes[i] = code;
+    
+    if (verboseFlag && code !== char.charCodeAt(0)) {
+      Logger.log(`Mapeando carácter especial '${char}' a byte ${code} (0x${code.toString(16).padStart(2, '0')})`);
+    }
+  }
+  
+  return bytes;
+}
+
+/**
+ * Mapea un carácter individual a su representación en CP437
+ * basado en la tabla de caracteres de Subtitle Edit
+ * @param {string} char - Carácter a mapear
+ * @return {number} - Valor de byte mapeado
+ */
+function mapCharToCP437(char) {
+  // Tabla de mapeo para caracteres especiales en español
+  const charMap = {
+    // Letras acentuadas minúsculas
+    'á': 0xA0, // á
+    'é': 0x82, // é
+    'í': 0xA1, // í
+    'ó': 0xA2, // ó
+    'ú': 0xA3, // ú
+    'ü': 0x81, // ü
+    'ñ': 0xA4, // ñ
+    
+    // Letras acentuadas mayúsculas
+    'Á': 0xB5, // Á
+    'É': 0x90, // É
+    'Í': 0xD6, // Í
+    'Ó': 0xE0, // Ó
+    'Ú': 0xE9, // Ú
+    'Ü': 0x9A, // Ü
+    'Ñ': 0xA5, // Ñ
+    
+    // Signos de puntuación específicos
+    '¿': 0xA8, // ¿
+    '¡': 0xAD, // ¡
+    
+    // Caracteres de control
+    '\r': 0x0D, // CR (Carriage Return)
+    '\n': 0x0A, // LF (Line Feed)
+    ' ': 0x20, // Espacio
+    
+    // Otros caracteres comunes
+    '«': 0xAE, // comilla angular izquierda
+    '»': 0xAF, // comilla angular derecha
+    '"': 0x22, // comillas dobles
+    '"': 0x22, // comillas dobles inglesas
+    '"': 0x22, // comillas dobles inglesas
+    ''': 0x27, // comilla simple
+    ''': 0x27, // comilla simple inglesa
+    '–': 0x2D, // guión
+    '—': 0x2D  // guión largo
+  };
+  
+  // Si el carácter está en el mapa, devolver su valor mapeado
+  if (charMap[char] !== undefined) {
+    return charMap[char];
+  }
+  
+  // Para otros caracteres, usar su valor ASCII/Unicode si está en el rango CP437
+  const code = char.charCodeAt(0);
+  if (code >= 0x20 && code <= 0x7F) { // Rango ASCII imprimible
+    return code;
+  }
+  
+  // Para caracteres no mapeados, usar espacio como fallback
+  return 0x20; // Espacio (32 decimal)
 } 
