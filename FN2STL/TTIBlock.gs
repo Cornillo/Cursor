@@ -119,9 +119,11 @@ function convertNumberToBCD(number, byteLength) {
 /**
  * Convierte un código de tiempo al formato de bytes BCD para STL
  * Optimizado para 24fps - Formato EBU STL compatible con Subtitle Edit
+ * Según especificación EBU Tech 3264-1991
+ * 
  * @param {string} timecode - Código de tiempo en formato HH:MM:SS:FF
  * @param {boolean} verboseFlag - Activar logs detallados
- * @return {Uint8Array} - Representación en bytes del código de tiempo
+ * @return {Uint8Array} - Representación en bytes del código de tiempo (4 bytes BCD)
  */
 function convertTimecodeToBytes(timecode, verboseFlag) {
   // Resultado: 4 bytes para HH:MM:SS:FF en formato BCD
@@ -135,35 +137,62 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     
     if (verboseFlag) Logger.log(`Convirtiendo timecode a bytes: ${timecode}`);
     
-    // Normalizar el formato y extraer componentes
-    const parts = timecode.replace(/[;.,]/g, ':').split(':');
+    // Normalizar el formato: asegurarnos que cualquier separador (;.,) sea reemplazado por :
+    // Si viene en formato con milisegundos HH:MM:SS,mmm o HH:MM:SS.mmm, convertir a frames
+    const normalizedTC = timecode.replace(/[;]/g, ':');
     
-    // Debe tener exactamente 4 partes: HH:MM:SS:FF
-    if (parts.length !== 4) {
-      if (verboseFlag) Logger.log(`Formato de timecode incorrecto: ${timecode}, se esperan 4 componentes`);
-      return result; // Devolver 00:00:00:00
+    let hours, minutes, seconds, frames;
+    
+    // Comprobar si el formato es HH:MM:SS.mmm o HH:MM:SS,mmm (con milisegundos)
+    if (normalizedTC.includes(',') || normalizedTC.includes('.')) {
+      // Dividir en componentes
+      const regex = /^(\d{1,2}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;
+      const matches = normalizedTC.match(regex);
+      
+      if (matches && matches.length === 5) {
+        hours = parseInt(matches[1], 10);
+        minutes = parseInt(matches[2], 10);
+        seconds = parseInt(matches[3], 10);
+        const milliseconds = parseInt(matches[4], 10);
+        
+        // Convertir milisegundos a frames (para 24fps)
+        // 1 segundo = 24 frames, por lo que 1 frame = 41.666... ms
+        frames = Math.round(milliseconds / 41.666);
+      } else {
+        if (verboseFlag) Logger.log(`Formato de timecode inválido: ${timecode}`);
+        return result;
+      }
+    } else {
+      // Formato estándar HH:MM:SS:FF
+      const parts = normalizedTC.split(':');
+      
+      // Debe tener exactamente 4 partes: HH:MM:SS:FF
+      if (parts.length !== 4) {
+        if (verboseFlag) Logger.log(`Formato de timecode incorrecto: ${timecode}, se esperan 4 componentes`);
+        return result; // Devolver 00:00:00:00
+      }
+      
+      // Convertir cada componente a entero
+      hours = parseInt(parts[0], 10);
+      minutes = parseInt(parts[1], 10);
+      seconds = parseInt(parts[2], 10);
+      frames = parseInt(parts[3], 10);
     }
     
-    // Convertir cada componente a entero
-    const hours = parseInt(parts[0], 10);
-    const minutes = parseInt(parts[1], 10);
-    const seconds = parseInt(parts[2], 10);
-    let frames = parseInt(parts[3], 10);
-    
-    // Validar rangos (adaptado para 24fps)
+    // Validar rangos según especificación EBU para 24fps
     if (hours < 0 || hours > 23) {
       if (verboseFlag) Logger.log(`Horas fuera de rango (0-23): ${hours}`);
-      return result;
+      hours = Math.max(0, Math.min(hours, 23));
     }
     
     if (minutes < 0 || minutes > 59) {
       if (verboseFlag) Logger.log(`Minutos fuera de rango (0-59): ${minutes}`);
-      return result;
+      minutes = Math.max(0, Math.min(minutes, 59));
     }
     
     if (seconds < 0 || seconds > 59) {
       if (verboseFlag) Logger.log(`Segundos fuera de rango (0-59): ${seconds}`);
-      return result;
+      seconds = Math.max(0, Math.min(seconds, 59));
     }
     
     // Para 24fps, frames debe estar entre 0-23
@@ -172,7 +201,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
       frames = Math.max(0, Math.min(frames, 23));
     }
     
-    // Convertir cada componente a BCD (Binary Coded Decimal)
+    // Convertir cada componente a BCD (Binary Coded Decimal) según especificación EBU
     // Cada byte almacena dos dígitos decimales: el dígito de las decenas en los 4 bits altos
     // y el dígito de las unidades en los 4 bits bajos
     result[0] = (Math.floor(hours / 10) << 4) | (hours % 10);

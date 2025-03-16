@@ -173,6 +173,7 @@ function extractSubtitleData(sheet, structure, verboseFlag) {
 
 /**
  * Verifica si una cadena tiene formato de código de tiempo
+ * Admite formatos HH:MM:SS:FF (frames) y HH:MM:SS,mmm o HH:MM:SS.mmm (milisegundos)
  * @param {string} value - Valor a verificar
  * @return {boolean} true si tiene formato de código de tiempo
  */
@@ -183,7 +184,16 @@ function isTimecodeFormat(value) {
   const str = String(value).trim();
   
   // Verificar formato HH:MM:SS:FF (o con ; o . como separadores)
-  return /^\d{1,2}[:;.]\d{1,2}[:;.]\d{1,2}[:;.]\d{1,2}$/.test(str);
+  if (/^\d{1,2}[:;.]\d{1,2}[:;.]\d{1,2}[:;.]\d{1,2}$/.test(str)) {
+    return true;
+  }
+  
+  // Verificar formato HH:MM:SS,mmm o HH:MM:SS.mmm (con milisegundos)
+  if (/^\d{1,2}:\d{1,2}:\d{1,2}[,.](\d{1,3})$/.test(str)) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**
@@ -237,15 +247,43 @@ function validateAndFormatTimecode(value, verboseFlag) {
     if (isTimecodeFormat(value)) {
       if (verboseFlag) Logger.log(`Valor ya tiene formato de timecode: ${value}`);
       
-      // Normalizar separadores a ':' (formato estándar)
-      let timecode = String(value).trim().replace(/[;.]/g, ':');
+      let timecode = String(value).trim();
+      let hours, minutes, seconds, frames;
       
-      // Extraer componentes
-      const parts = timecode.split(':');
-      let hours = parseInt(parts[0], 10);
-      let minutes = parseInt(parts[1], 10);
-      let seconds = parseInt(parts[2], 10);
-      let frames = parseInt(parts[3], 10);
+      // Comprobar si el formato es HH:MM:SS.mmm o HH:MM:SS,mmm (con milisegundos)
+      if (timecode.includes(',') || timecode.includes('.')) {
+        const regex = /^(\d{1,2}):(\d{1,2}):(\d{1,2})[,.](\d{1,3})$/;
+        const matches = timecode.match(regex);
+        
+        if (matches && matches.length === 5) {
+          hours = parseInt(matches[1], 10);
+          minutes = parseInt(matches[2], 10);
+          seconds = parseInt(matches[3], 10);
+          const milliseconds = parseInt(matches[4], 10);
+          
+          // Convertir milisegundos a frames (para 24fps)
+          // 1 segundo = 24 frames, por lo que 1 frame = 41.666... ms
+          frames = Math.round(milliseconds / 41.666);
+        } else {
+          if (verboseFlag) Logger.log(`Formato de timecode inválido: ${value}`);
+          return null;
+        }
+      } else {
+        // Normalizar separadores a ':' (formato estándar)
+        timecode = timecode.replace(/[;.]/g, ':');
+        
+        // Extraer componentes
+        const parts = timecode.split(':');
+        if (parts.length !== 4) {
+          if (verboseFlag) Logger.log(`Formato de timecode inválido: ${value}, se esperan 4 componentes`);
+          return null;
+        }
+        
+        hours = parseInt(parts[0], 10);
+        minutes = parseInt(parts[1], 10);
+        seconds = parseInt(parts[2], 10);
+        frames = parseInt(parts[3], 10);
+      }
       
       // Validar rangos
       if (hours < 0 || hours > 23) {
@@ -285,9 +323,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
       
-      // Para 24fps, cada frame = 41.67ms (1000/24)
+      // Para 24fps, cada frame = 41.667ms (1000/24)
       const ms = value.getMilliseconds();
-      let frames = Math.floor(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
+      let frames = Math.round(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
       
       // Asegurar que frames esté en el rango 0-23
       if (frames < 0) frames = 0;
@@ -335,7 +373,7 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const ms = parseInt(msMatch[4], 10);
         
         // Convertir milisegundos a frames para 24fps 
-        let frames = Math.floor(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
+        let frames = Math.round(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
         if (frames < 0) frames = 0;
         if (frames > 23) frames = 23;
         
@@ -413,7 +451,7 @@ function getSpreadsheetName(sheetId) {
  * @param {string} fileName - Nombre del archivo
  * @param {string} folderId - ID de la carpeta destino
  * @param {boolean} verboseFlag - Indicador para mostrar logs detallados
- * @return {string} ID del archivo creado
+ * @return {Object} Objeto con información del archivo creado (id y url)
  */
 function saveSTLFile(stlData, fileName, folderId, verboseFlag) {
   if (verboseFlag) Logger.log(`Guardando archivo STL: ${fileName}`);
@@ -435,8 +473,12 @@ function saveSTLFile(stlData, fileName, folderId, verboseFlag) {
       Logger.log(`Archivo STL guardado con éxito. ID: ${file.getId()}`);
     }
     
-    // Devolver el ID del archivo
-    return file.getId();
+    // Devolver un objeto con la información del archivo
+    return {
+      id: file.getId(),
+      url: file.getUrl(),
+      downloadUrl: `https://drive.google.com/uc?id=${file.getId()}&export=download`
+    };
     
   } catch (error) {
     Logger.log(`Error al guardar archivo STL: ${error.message}`);

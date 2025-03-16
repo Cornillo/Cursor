@@ -40,7 +40,7 @@ function createGSIBlock(options) {
   // Código de página de caracteres (CPN) - byte 0-2 - "437" (DOS Latin US)
   writeStringToBuffer(buffer, 0, "437");
   
-  // Código de formato de disco (DFC) - bytes 3-10 - "STL24.01" (25fps - PAL)
+  // Código de formato de disco (DFC) - bytes 3-10 - "STL24.01" (24fps)
   writeStringToBuffer(buffer, 3, "STL24.01");
   
   // Código estándar de pantalla (DSC) - byte 11 - "0" (Open subtitling)

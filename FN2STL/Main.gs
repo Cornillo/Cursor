@@ -986,7 +986,9 @@ function probarCorrecciones() {
     Logger.log("=== RESULTADOS DE LA CONVERSIÓN ===");
     Logger.log(`Éxito: ${result.success}`);
     Logger.log(`Archivo: ${result.fileName}`);
+    Logger.log(`ID del archivo: ${result.fileId}`);
     Logger.log(`URL: ${result.fileUrl}`);
+    Logger.log(`URL de descarga: ${result.downloadUrl}`);
     
     return "Prueba completada. Revisar logs para detalles.";
   } catch (error) {
