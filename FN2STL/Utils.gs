@@ -224,6 +224,7 @@ function addSecondsToTimecode(timecode, seconds) {
 
 /**
  * Valida y formatea un código de tiempo al formato estándar HH:MM:SS:FF
+ * adaptado específicamente para formato de 24fps y Subtitle Edit
  * @param {any} value - Valor a validar y formatear
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {string|null} Código de tiempo formateado o null si es inválido
@@ -262,11 +263,10 @@ function validateAndFormatTimecode(value, verboseFlag) {
         seconds = Math.max(0, Math.min(seconds, 59));
       }
       
-      // Convertir frames a valores apropiados para STL25.01 (25fps)
-      // En la visualización, frames debe estar entre 0 y 24
-      if (frames < 0 || frames > 24) {
-        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando...`);
-        frames = Math.max(0, Math.min(frames, 24));
+      // Para STL24.01: Frames deben estar entre 0-23
+      if (frames < 0 || frames > 23) {
+        if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando a formato 24fps...`);
+        frames = Math.max(0, Math.min(frames, 23));
       }
       
       // Formatear con ceros a la izquierda
@@ -277,16 +277,20 @@ function validateAndFormatTimecode(value, verboseFlag) {
       return formattedTimecode;
     }
     
-    // Si es un objeto Date, convertir a timecode
+    // Si es un objeto Date, convertir a timecode para 24fps
     if (value instanceof Date) {
       if (verboseFlag) Logger.log(`Convirtiendo Date a timecode: ${value}`);
       
       const hours = value.getHours();
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
-      // Para 25fps, convertimos milisegundos a frames
+      // Para 24fps, convertimos milisegundos a frames
       const ms = value.getMilliseconds();
-      const frames = Math.min(Math.floor(ms / 40), 24); // 1000ms / 25fps = 40ms por frame
+      let frames = Math.floor(ms / 41.667); // 1000ms / 24fps = 41.667ms por frame
+      
+      // Asegurar rango válido
+      if (frames < 0) frames = 0;
+      if (frames > 23) frames = 23;
       
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
     }
@@ -329,8 +333,10 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const seconds = parseInt(msMatch[3], 10);
         const ms = parseInt(msMatch[4], 10);
         
-        // Convertir milisegundos a frames para 25fps (formato PAL)
-        const frames = Math.min(Math.floor(ms / 40), 24); // 1000ms / 25fps = 40ms por frame
+        // Convertir milisegundos a frames para 24fps 
+        let frames = Math.floor(ms / 41.667);  // 1000ms / 24fps = 41.667ms por frame
+        if (frames < 0) frames = 0;
+        if (frames > 23) frames = 23;
         
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
       }
