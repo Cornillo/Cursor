@@ -193,6 +193,7 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
 
 /**
  * Procesa texto para formato STL con mejor manejo de caracteres especiales
+ * Optimizado para CP850 y compatible con Subtitle Edit
  * @param {string} text - Texto del subtítulo
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Array de bytes procesados
@@ -200,6 +201,14 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
 function processTextForSTL(text, verboseFlag) {
   if (!text) return new Uint8Array(0);
   if (verboseFlag) Logger.log(`Procesando texto para STL: "${text}"`);
+  
+  // Normalizar caracteres especiales comunes en español
+  text = text
+    .replace(/ñ/g, 'ñ') // Asegurar que ñ sea reconocida
+    .replace(/['']/g, "'") // Comillas simples estándar
+    .replace(/[""]/g, '"') // Comillas dobles estándar
+    .replace(/…/g, '...') // Puntos suspensivos
+    .replace(/–|—/g, '-'); // Guiones
   
   // Separar en líneas si hay saltos de línea
   const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
@@ -224,7 +233,7 @@ function processTextForSTL(text, verboseFlag) {
     }
   }
   
-  // Procesar caracteres especiales y convertir a bytes según CP437
+  // Procesar caracteres especiales y convertir a bytes según CP850
   const bytes = processSpecialCharsForSTL(processedText, verboseFlag);
   
   // Añadir carácter de fin de texto (0x8F según EBU)
@@ -234,13 +243,21 @@ function processTextForSTL(text, verboseFlag) {
   
   if (verboseFlag) {
     Logger.log(`Texto procesado con ${result.length} bytes (incluyendo EOT)`);
+    
+    // Mostrar representación hexadecimal para debugging
+    let hexOutput = "";
+    for (let i = 0; i < Math.min(result.length, 20); i++) {
+      hexOutput += result[i].toString(16).padStart(2, '0') + " ";
+    }
+    if (result.length > 20) hexOutput += "...";
+    Logger.log(`Primeros bytes del texto procesado (hex): ${hexOutput}`);
   }
   
   return result;
 }
 
 /**
- * Procesa caracteres especiales para STL usando CP437
+ * Procesa caracteres especiales para STL usando CP850
  * @param {string} text - Texto a procesar
  * @param {boolean} verboseFlag - Activar logs detallados
  * @return {Uint8Array} - Array de bytes de caracteres mapeados
@@ -249,34 +266,43 @@ function processSpecialCharsForSTL(text, verboseFlag) {
   if (!text) return new Uint8Array(0);
   
   const bytes = new Uint8Array(text.length);
+  let specialCharsFound = 0;
   
   for (let i = 0; i < text.length; i++) {
     const char = text.charAt(i);
     const code = mapCharToCP437(char);
     bytes[i] = code;
     
-    if (verboseFlag && code !== char.charCodeAt(0)) {
-      Logger.log(`Mapeando carácter especial '${char}' a byte ${code} (0x${code.toString(16).padStart(2, '0')})`);
+    // Detectar caracteres especiales para logging
+    if (code !== char.charCodeAt(0) || code > 127) {
+      specialCharsFound++;
+      if (verboseFlag) {
+        Logger.log(`Mapeando carácter especial '${char}' (Unicode ${char.charCodeAt(0)}) a byte ${code} (0x${code.toString(16).padStart(2, '0')})`);
+      }
     }
+  }
+  
+  if (verboseFlag && specialCharsFound > 0) {
+    Logger.log(`Total ${specialCharsFound} caracteres especiales mapeados en el texto`);
   }
   
   return bytes;
 }
 
 /**
- * Mapea un carácter individual a su representación en CP437
+ * Mapea un carácter individual a su representación en CP850 (Latin-1)
  * basado en la tabla de caracteres de Subtitle Edit
  * @param {string} char - Carácter a mapear
  * @return {number} - Valor de byte mapeado
  */
 function mapCharToCP437(char) {
-  // Tabla de mapeo para caracteres especiales en español
+  // Tabla de mapeo para caracteres especiales en español usando CP850
   const charMap = {
-    // Letras acentuadas minúsculas - ajustadas para CP437
+    // Letras acentuadas minúsculas - CP850 (Latin-1)
     'á': 0xA0, // á (160)
     'é': 0x82, // é (130)
-    'í': 0xA1, // í (161) - ajustado para asegurar correcta visualización
-    'ó': 0xA2, // ó (162) - ajustado para asegurar correcta visualización
+    'í': 0xA1, // í (161)
+    'ó': 0xA2, // ó (162)
     'ú': 0xA3, // ú (163)
     'ü': 0x81, // ü (129)
     'ñ': 0xA4, // ñ (164)
@@ -316,7 +342,7 @@ function mapCharToCP437(char) {
     return charMap[char];
   }
   
-  // Para otros caracteres, usar su valor ASCII/Unicode si está en el rango CP437
+  // Para otros caracteres, usar su valor ASCII/Unicode si está en el rango imprimible
   const code = char.charCodeAt(0);
   if (code >= 0x20 && code <= 0x7F) { // Rango ASCII imprimible
     return code;

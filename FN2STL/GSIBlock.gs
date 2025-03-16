@@ -5,7 +5,7 @@
 
 /**
  * Crea el bloque GSI (General Subtitle Information) para el archivo STL
- * con formato NTSC adaptado para 24fps y mejor compatibilidad con Subtitle Edit
+ * con formato PAL (25fps) y mejor compatibilidad con Subtitle Edit
  * 
  * @param {Object} options - Opciones para el bloque GSI
  * @param {string} options.programName - Nombre del programa (max 32 chars)

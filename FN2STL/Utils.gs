@@ -414,8 +414,8 @@ function saveSTLFile(data, fileName, folderId, verboseFlag) {
   try {
     // Asegurar que el nombre termine con .STL (en mayúsculas)
     if (!fileName.toUpperCase().endsWith('.STL')) {
-      fileName = fileName + '.STL';
-      if (verboseFlag) Logger.log(`Nombre de archivo ajustado a: ${fileName}`);
+      fileName = fileName.replace(/\.[^/.]+$/, "") + '.STL'; // Eliminar cualquier extensión y añadir .STL
+      if (verboseFlag) Logger.log(`Nombre de archivo normalizado: ${fileName}`);
     }
     
     // Convertir el array de bytes a un blob
