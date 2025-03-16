@@ -28,8 +28,8 @@ function createGSIBlock(title, country, languageCode, totalSubtitles, verboseFla
   writeStringToBuffer(gsiBlock, "850", 0, 3);
   
   // 2. Código de Disco (DFC: Disk Format Code)
-  // STL30.01 para 30 fps - mejor compatibilidad con Subtitle Edit
-  writeStringToBuffer(gsiBlock, "STL30.01", 3, 8);
+  // STL25.01 para 25 fps - mejor compatibilidad con Subtitle Edit
+  writeStringToBuffer(gsiBlock, "STL25.01", 3, 8);
   
   // 3. Código de Estándar de Visualización (DSC: Display Standard Code)
   // 0 = Abierto (open subtitling)

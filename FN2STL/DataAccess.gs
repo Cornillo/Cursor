@@ -262,11 +262,11 @@ function validateAndFormatTimecode(value, verboseFlag) {
         seconds = Math.max(0, Math.min(seconds, 59));
       }
       
-      // Convertir frames a valores apropiados para STL30.01 (30fps)
-      // En la visualización, frames debe estar entre 0 y 29
-      if (frames < 0 || frames > 29) {
+      // Convertir frames a valores apropiados para STL25.01 (25fps)
+      // En la visualización, frames debe estar entre 0 y 24
+      if (frames < 0 || frames > 24) {
         if (verboseFlag) Logger.log(`Frames fuera de rango (${frames}), ajustando...`);
-        frames = Math.max(0, Math.min(frames, 29));
+        frames = Math.max(0, Math.min(frames, 24));
       }
       
       // Formatear con ceros a la izquierda
@@ -284,9 +284,9 @@ function validateAndFormatTimecode(value, verboseFlag) {
       const hours = value.getHours();
       const minutes = value.getMinutes();
       const seconds = value.getSeconds();
-      // Para 30fps, convertimos milisegundos a frames (ajustado para Subtitle Edit)
+      // Para 25fps, convertimos milisegundos a frames
       const ms = value.getMilliseconds();
-      const frames = Math.min(Math.floor(ms / 33.33), 29); // 1000ms / 30fps ≈ 33.33ms por frame
+      const frames = Math.min(Math.floor(ms / 40), 24); // 1000ms / 25fps = 40ms por frame
       
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
     }
@@ -329,8 +329,8 @@ function validateAndFormatTimecode(value, verboseFlag) {
         const seconds = parseInt(msMatch[3], 10);
         const ms = parseInt(msMatch[4], 10);
         
-        // Convertir milisegundos a frames para 30fps (formato Subtitle Edit)
-        const frames = Math.min(Math.floor(ms / 33.33), 29); // 1000ms / 30fps ≈ 33.33ms por frame
+        // Convertir milisegundos a frames para 25fps (formato PAL)
+        const frames = Math.min(Math.floor(ms / 40), 24); // 1000ms / 25fps = 40ms por frame
         
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
       }

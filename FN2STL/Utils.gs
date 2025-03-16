@@ -258,8 +258,8 @@ function convertTimecodeToBytes(timecode, verboseFlag) {
     const validMinutes = Math.max(0, Math.min(minutes, 59));
     const validSeconds = Math.max(0, Math.min(seconds, 59));
     
-    // Para formato STL30.01 (30fps), el máximo de frames es 29
-    const validFrames = Math.max(0, Math.min(frames, 29));
+    // Para formato STL25.01 (25fps), el máximo de frames es 24
+    const validFrames = Math.max(0, Math.min(frames, 24));
     
     // Convertir a BCD (Binary Coded Decimal)
     // En BCD, cada dígito decimal se codifica en 4 bits
