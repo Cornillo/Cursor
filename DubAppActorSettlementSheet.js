@@ -18,7 +18,7 @@ var auxFilteredValues;
 var auxNDX;
 var auxNDX2;
 var auxRow;
-const timezone = "GMT-3"
+const timezone = allIDs["timezone"];
 var actorValues;
 var actorNDX;
 var rateValues;
@@ -53,14 +53,13 @@ var disabledStatus = ["(04) Dismissed: DWOCharacterProduction", "(05) Covered by
 
 //FUNCTIONS
 /*function call2(){
-var fechaInicial = new Date("2025-01-08T00:00:00"); // Año-Mes-Día
-var fechaFinal = new Date("2025-01-08T00:00:00");
+var fechaInicial = new Date("2025-05-06T00:00:00"); // Año-Mes-Día
+var fechaFinal = new Date("2025-05-06T00:00:00");
 actorsSettlement2(fechaInicial,fechaFinal, "Mailing");
-
 }*/
 
 function call(){
-var hojaActiva = SpreadsheetApp.getActiveSheet(); // Obtener la hoja activa
+var hojaActiva = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("RESUMEN"); // Obtener la hoja RESUMEN
 
 var fechaInicial = hojaActiva.getRange("C5").getValue();
 var fechaFinal =   hojaActiva.getRange("C7").getValue();
@@ -80,14 +79,21 @@ function actorsSettlement(auxFromDate, auxToDate){
 actorsSettlement2(auxFromDate, auxToDate, "Settlement")
 }
 
-
 function modalMailing(){
-// Establecer fecha inicial como hoy a las 00:00
-var fechaInicial = new Date();
-fechaInicial.setHours(0, 0, 0, 0);
-var fechaFinal = new Date(); // Fecha y hora actual
-actorsSettlement2(fechaInicial,fechaFinal, "Mailing");
+  // Crear fecha inicial (hoy a las 00:00)
+  var fechaInicial = new Date();
+  fechaInicial.setHours(0, 0, 0, 0);
+  
+  Logger.log('Ejecución mailing período: ' + fechaInicial);
+  actorsSettlement2(fechaInicial, fechaInicial, "Mailing");
 }
+
+function modalMailingDebug(){
+  // Establecer fecha inicial como hoy a las 00:00
+  var fechaInicial = new Date("2025-04-08T00:00:00");
+  var fechaFinal = new Date("2025-04-08T00:00:00"); // Fecha y hora actual
+  actorsSettlement2(fechaInicial,fechaFinal, "Mailing");
+  }
 
 function actorsSettlement2(auxFromDate, auxToDate, modal){
 var charProdSheet;
@@ -492,6 +498,7 @@ const EVENT_STATUS = {
 // Inicializar arrays usando Set para evitar duplicados
 const dialogChannelEventTypNDX = new Set();
 const finalChannelEventTypNDX = new Set();
+const prelimChannelEventTypNDX = new Set();
 const withoutPreliminar = new Set();
 const dwoWithoutPreliminar = new Set();
 
@@ -521,6 +528,8 @@ auxValues.forEach(row => {
     dialogChannelEventTypNDX.add(row[1]);
     if (row[3] === SEARCH_TYPES.RECORDING2) {
       finalChannelEventTypNDX.add(row[1]);
+    } else {
+      prelimChannelEventTypNDX.add(row[1]);
     }
   }
 });
@@ -528,19 +537,36 @@ auxValues.forEach(row => {
 // Procesar DWO-Event
 OpenSht("DWO-Event", 0, 59, "(120) Phase completed: DWOEvent", 0, ssActive);
 
+// Filtrar y mapear los valores para obtener solo la columna [1] de los casos que cumplen la condición
+const recordingEvents = auxFilteredValues
+  .filter(row => prelimChannelEventTypNDX.has(row[3]))
+  .map(row => row[1]);
+
+//*** */
+var auxfecha; var auxtipoevento; var auxestado; var auxdescartar;
 const dialogRecordingEvents = auxFilteredValues.filter(row => {
   const fechaEnFila = new Date(row[15]);
-  const esFinal = finalChannelEventTypNDX.has(row[3]);
-  if(row[0]==="sYZOcaun-KMbDz6Vxwu7My3jAW1K1EFCS"){
-    var aux999 =  withoutPreliminar.has(row[1]);
-    aux999 = dwoWithoutPreliminar.has(row[75]);
-    aux999=dialogChannelEventTypNDX.has(row[3]); 
+
+  auxfecha = fechaEnFila >= auxFromDate && fechaEnFila < auxToDate;
+  if(auxfecha) {
+    auxtipoevento = dialogChannelEventTypNDX.has(row[3]);
+    if(auxtipoevento) {
+      auxestado = [EVENT_STATUS.COMPLETED, EVENT_STATUS.IN_PRODUCTION].includes(row[58]);
+      if(auxestado) {
+        auxdescartar = finalChannelEventTypNDX.has(row[3]) && recordingEvents.includes(row[1]);
+      }
+    }
   }
-  return fechaEnFila >= auxFromDate && 
-         fechaEnFila < auxToDate && 
-         dialogChannelEventTypNDX.has(row[3]) &&
-         [EVENT_STATUS.COMPLETED, EVENT_STATUS.IN_PRODUCTION].includes(row[58]) &&
-         (!esFinal || (esFinal && (withoutPreliminar.has(row[1]) || dwoWithoutPreliminar.has(row[75]))));
+
+  // Debug específico
+  /*if(row[1]==="23de6b3f5-GyzUb" && dialogChannelEventTypNDX.has(row[3])) {
+    Logger.log('Debug - Fecha: ' + auxfecha);
+    Logger.log('Debug - Tipo Evento: ' + auxtipoevento);
+    Logger.log('Debug - Estado: ' + auxestado);
+    Logger.log('Debug - Descartar: ' + auxdescartar);
+  }*/
+
+  return auxfecha && auxtipoevento && auxestado && !auxdescartar;
 });
 
 // Procesar eventos filtrados
@@ -645,6 +671,8 @@ for (var i = 0; i < charProdSheet.length; i++) {
     if(aux1!=-1){
       auxSong=songValues[aux1];
       if(auxSong[11]==="(99) Dismissed: DWOSong") {continue};
+      // Verificar si la canción está cubierta por diálogo
+      if(auxSong[8] && auxSong[8].toString().includes("Cover by dialog recoding: Song_ExtraAttrib")) {continue};
       auxGroupRequest = auxCharProd[10].replace(": Songs recording: RateTeam","")+ " / " + auxSong[2];
     //        auxGroupRequest = auxSong[4].replace(": Song_Type","");
     } else {
@@ -655,8 +683,27 @@ for (var i = 0; i < charProdSheet.length; i++) {
       auxActor_ID=auxCharProd[5];
     } else if (auxCharacter[4].includes("Alt actor (sing): Character_Attributes") && auxCharacter[7]!="") {
       auxActor_ID=auxCharacter[7];
-    } else {
+    } else if (auxCharacter[6]!=""){
       auxActor_ID=auxCharacter[6];
+    } else {
+      // Buscar en DWO_CharacterProduction el actor_id correspondiente
+      var characterProductionSheet = SpreadsheetApp.openById(databaseID.getID().activeID).getSheetByName("DWO_CharacterProduction");
+      var characterProductionData = characterProductionSheet.getDataRange().getValues();
+      var foundActor = false;
+      
+      // Verificar si ya está cargado en memoria, si no, buscar en la hoja
+      for (var k = 1; k < characterProductionData.length; k++) {
+        if (characterProductionData[k][1] == auxCharProd[paramCharacter] && characterProductionData[k][2] == auxSong[1]) {
+          auxActor_ID = characterProductionData[k][4]; // Columna E contiene el actor_id
+          foundActor = true;
+          break;
+        }
+      }
+      
+      // Si no se encontró, usar un valor predeterminado o dejarlo vacío
+      if (!foundActor) {
+        auxActor_ID = "";
+      }
     }
     auxProject=labelProject(auxSong[1], "");
 
@@ -718,7 +765,7 @@ for (var i = 0; i < charProdSheet.length; i++) {
 
   } else if(groupRequest==="Songs") {
     auxDate=auxCharProd[18];
-    auxAmount=auxCharProd[9];
+    auxAmount = calculateSongAmount(auxCharProd[10], auxDate);
     auxLoops="-";
   }
 
@@ -870,6 +917,95 @@ matrix.sort(function(a, b) {
 });
 
 return matrix; // Return the sorted matrix
+}
+
+function calculateSongAmount(songTask, songCompletedDate) {
+  // Asegurarse de que los datos de tarifas estén cargados
+  // Usamos índice 1 (Col A) para DWO-Rate porque ahí está el Rate ID (PK) que relaciona con RateItem
+  if (!rateItemValues || !rateValues || !rateNDX) {
+    openSheet("DWO-Rate", 1, "", 0, ssNoTrack);
+    rateValues = auxValues;
+    rateNDX = auxNDX; // Indexado por Col A de DWO-Rate
+    openSheet("DWO-RateItem", 1, "", 0, ssNoTrack); // Este carga RateItem, el índice Col A no es relevante aquí directamente
+    rateItemValues = auxValues;
+    // No necesitamos rateItemNDX para este cálculo, iteraremos.
+  }
+
+  // Convertir fecha completado a Date, usar hoy si es nula/inválida
+  let effectiveDate = null;
+  try {
+      effectiveDate = convertToDate(songCompletedDate);
+      // Verificar si la conversión resultó en una fecha válida
+      if (!(effectiveDate instanceof Date && !isNaN(effectiveDate.getTime()))) {
+          //Logger.log('Fecha de completado inválida o vacía: ${songCompletedDate}. Usando fecha actual.');
+          Logger.log('Fecha de completado inválida o vacía: ' + songCompletedDate + '. Usando fecha actual.');
+          effectiveDate = new Date();
+          effectiveDate.setHours(0, 0, 0, 0); // Estandarizar a medianoche
+      }
+  } catch (e) {
+      //Logger.log('Error al convertir fecha: ${songCompletedDate}. Usando fecha actual. Error: ${e}');
+      Logger.log('Error al convertir fecha: ' + songCompletedDate + '. Usando fecha actual. Error: ' + e);
+      effectiveDate = new Date();
+      effectiveDate.setHours(0, 0, 0, 0);
+  }
+
+  // Iterar sobre RateItems
+  for (let i = 0; i < rateItemValues.length; i++) {
+    const rateItem = rateItemValues[i];
+    const itemRateID = rateItem[1];     // Col B: Rate ID (FK a DWO-Rate.RateID)
+    const paymentMethod = rateItem[2]; // Col C: Current payment method
+    const itemTask = rateItem[3];     // Col D: Task (Asumido, por favor verifica)
+    const itemStatus = rateItem[5];   // Col F: Status
+
+    // Verificar Task y Status
+    if (itemTask === songTask && itemStatus === "(01) Enabled: Generic") {
+      // Encontrar el Rate correspondiente usando el Rate ID de RateItem
+      const rateIndex = rateNDX.indexOf(itemRateID.toString()); // Buscamos el FK en el índice del PK de DWO-Rate
+
+      if (rateIndex !== -1) {
+        const rate = rateValues[rateIndex];
+        const validFromStr = rate[2]; // Col C: Valid from en DWO-Rate
+        const validUntilStr = rate[3]; // Col D: Valid until en DWO-Rate
+
+        try {
+            const validFrom = convertToDate(validFromStr);
+            let validUntil = null;
+            if (validUntilStr) {
+                validUntil = convertToDate(validUntilStr);
+            }
+
+            // Verificar que las fechas sean válidas antes de comparar
+            const isValidFrom = validFrom instanceof Date && !isNaN(validFrom.getTime());
+            const isValidUntil = !validUntilStr || (validUntil instanceof Date && !isNaN(validUntil.getTime())); // Válido si está vacío o es fecha válida
+
+            if (isValidFrom && isValidUntil) {
+                // Comprobar rango de fechas (ValidFrom <= effectiveDate AND (ValidUntil >= effectiveDate OR ValidUntil is blank))
+                if (validFrom <= effectiveDate && (!validUntil || validUntil >= effectiveDate)) {
+                    // Tarifa válida encontrada!
+                    const amount = parseFloat(paymentMethod.toString().replace(',', '.')) || 0;
+                    //Logger.log('Tarifa encontrada para Tarea: ${songTask}, Fecha: ${effectiveDate.toISOString()}. Monto: ${amount}');
+                    Logger.log('Tarifa encontrada para Tarea: ' + songTask + ', Fecha: ' + effectiveDate.toISOString() + '. Monto: ' + amount);
+                    return amount; // Devolver el monto
+                }
+            } else {
+                 //Logger.log('Fechas inválidas en DWO-Rate para Rate ID ${itemRateID}. From: ${validFromStr}, Until: ${validUntilStr}');
+                 Logger.log('Fechas inválidas en DWO-Rate para Rate ID ' + itemRateID + '. From: ' + validFromStr + ', Until: ' + validUntilStr);
+            }
+        } catch (e) {
+            //Logger.log('Error al procesar fechas para Rate ID ${itemRateID} (RateItem Col B) y RateItem ID ${rateItem[0]} (RateItem Col A): ${e}');
+            Logger.log('Error al procesar fechas para Rate ID ' + itemRateID + ' (RateItem Col B) y RateItem ID ' + rateItem[0] + ' (RateItem Col A): ' + e);
+            // Continuar con el siguiente item si hay error de fecha
+        }
+      } else {
+          // Logger.log('Rate ID ${itemRateID} de RateItem no encontrado en DWO-Rate.'); // Puede ser muy verboso
+      }
+    }
+  }
+
+  // Si no se encontró ninguna tarifa válida
+  //Logger.log('No se encontró tarifa válida para Tarea: ${songTask}, Fecha: ${effectiveDate.toISOString()}');
+  Logger.log('No se encontró tarifa válida para Tarea: ' + songTask + ', Fecha: ' + effectiveDate.toISOString());
+  return 0; // Devolver 0 por defecto
 }
 
 function labelProject(auxProduction_ID, recordingDate) {
@@ -1065,8 +1201,8 @@ if (auxService === "Voice Over" || auxService === "LipSync" || auxService === "L
 
   //AD Rate comparison
   if (auxService === "Audio Description") {
-    if (auxCitation + ((auxLoops - 6) * auxLoopValue) > auxRateAmount) {
-      return (auxCitation + ((auxLoops - 6) * auxLoopValue));
+    if (auxLoops < 6 ? auxCitation : auxCitation + ((auxLoops - 6) * auxLoopValue) > auxRateAmount) {
+      return (auxLoops < 6 ? auxCitation : auxCitation + ((auxLoops - 6) * auxLoopValue));
     } else {
       return auxRateAmount;
     }

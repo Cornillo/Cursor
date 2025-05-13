@@ -49,7 +49,7 @@ Tabla de llamadas y descripción de funciones:
 
 cleanDubApp()
    └─ cleanConTask() - Limpia y respalda registros de CON-Task
-        └─ moveToBackup() - Mueve registros a hoja de respaldo y elimina descartados
+        └─ moveToBackup() - Mueve registros a hoja de respaldo y elimina descartados/sin cambios
 
 Descripción de funciones:
 - cleanDubApp: Función principal que inicia el proceso de limpieza
@@ -625,8 +625,9 @@ function CleanFilters(ss) {
  * Script para gestionar backups y limpieza de DubApp
  * 
  * Árbol de llamadas:
- * ├── cleanDubAppControl()
+ * ├── cleanDubAppControl() - Trigger programado principal
  * │   └── databaseID.getID()
+ * └── cleanDubAppControl_Continuation() - Trigger asincrónico para continuaciones
  * 
  * La función cleanDubAppControl:
  * - Cambia el estado de procesamiento en CON-Control A2 (false durante proceso)
@@ -642,6 +643,10 @@ function cleanDubAppControl() {
   const scriptProperties = PropertiesService.getScriptProperties();
   let startRow = parseInt(scriptProperties.getProperty('CLEANUP_START_ROW') || '0');
   let isFirstRun = startRow === 0;
+  
+  // Tiempo máximo de ejecución en milisegundos (6 minutos = 360000 ms)
+  const MAX_EXECUTION_TIME = 360000;
+  const startTime = new Date().getTime();
   
   try {
     // Obtener la hoja de control
@@ -664,6 +669,9 @@ function cleanDubAppControl() {
       console.log(`CON-TaskBackup: ${backupSheet.getLastRow() - 1} registros`);
       console.log("\n=== PROCESAMIENTO ===");
       
+      // Limpiar cualquier trigger de continuación que pudiera haber quedado
+      deleteTriggersByFunctionNames(['cleanDubAppControl_Continuation']);
+      
       // Ordenar la hoja por la columna G para optimizar el procesamiento
       const dataRange = currentSheet.getRange(2, 1, currentSheet.getLastRow() - 1, currentSheet.getLastColumn());
       dataRange.sort({column: STATUS_COLUMN_INDEX + 1, ascending: true}); // +1 porque sort usa 1-based index
@@ -672,112 +680,135 @@ function cleanDubAppControl() {
       scriptProperties.setProperty('TOTAL_ROWS_TO_PROCESS', currentSheet.getLastRow() - 1);
     }
     
-    // Obtener datos de la hoja actual a partir de la fila de inicio
-    const totalRows = currentSheet.getLastRow() - 1;
-    if (totalRows <= 0 || startRow >= totalRows) {
-      // Proceso completado, limpiar propiedades y finalizar
-      scriptProperties.deleteProperty('CLEANUP_START_ROW');
-      scriptProperties.deleteProperty('TOTAL_ROWS_TO_PROCESS');
-      console.log("=== LIMPIEZA COMPLETADA ===");
-      return;
-    }
+    // Procesar lotes hasta alcanzar el límite de tiempo o completar todas las filas
+    let processedBatches = 0;
     
-    // Calcular cuántas filas procesar en este lote
-    const rowsToProcess = Math.min(BATCH_SIZE, totalRows - startRow);
-    const endRow = startRow + rowsToProcess;
-    
-    // Obtener datos del lote actual
-    const dataRange = currentSheet.getRange(startRow + 2, 1, rowsToProcess, currentSheet.getLastColumn());
-    const data = dataRange.getValues();
-    
-    // Arrays para almacenar registros según su acción
-    const toBackup = [];
-    const rowsToDelete = [];
-    
-    // Contadores para estadísticas
-    let moveToBackupCount = 0;
-    let deleteOnlyCount = 0;
-    let keepCount = 0;
-    
-    // Procesar cada fila según el valor de la columna G
-    for (let i = 0; i < data.length; i++) {
-      const status = data[i][STATUS_COLUMN_INDEX];
-      const actualRowIndex = startRow + i + 2;
-      
-      if (MOVE_TO_BACKUP.includes(status)) {
-        // Mover a backup y luego eliminar
-        toBackup.push(data[i]);
-        rowsToDelete.push(actualRowIndex);
-        moveToBackupCount++;
-      } else if (DELETE_ONLY.includes(status)) {
-        // Solo eliminar
-        rowsToDelete.push(actualRowIndex);
-        deleteOnlyCount++;
-      } else {
-        // No hacer nada (mantener en la hoja actual)
-        keepCount++;
+    while (true) {
+      // Verificar si queda tiempo suficiente para otro lote (30 segundos de margen)
+      const currentTime = new Date().getTime();
+      const elapsedTime = currentTime - startTime;
+      if (elapsedTime > (MAX_EXECUTION_TIME - 30000)) {
+        console.log(`Tiempo límite alcanzado después de ${processedBatches} lotes. Programando continuación...`);
+        break;
       }
-    }
-    
-    // Registrar estadísticas del lote actual
-    console.log(`Lote actual (filas ${startRow+1}-${endRow}):`);
-    console.log(`- Registros a mover a backup: ${moveToBackupCount}`);
-    console.log(`- Registros solo a eliminar: ${deleteOnlyCount}`);
-    console.log(`- Registros a mantener: ${keepCount}`);
-    
-    // Mover registros al backup si hay alguno
-    if (toBackup.length > 0) {
-      const backupLastRow = backupSheet.getLastRow();
-      backupSheet.getRange(backupLastRow + 1, 1, toBackup.length, toBackup[0].length).setValues(toBackup);
-      console.log(`${toBackup.length} registros copiados a CON-TaskBackup`);
-    }
-    
-    // Eliminar filas en orden inverso para evitar problemas con los índices
-    if (rowsToDelete.length > 0) {
-      rowsToDelete.sort((a, b) => b - a); // Ordenar en orden descendente
       
-      // Optimización: Agrupar filas consecutivas para eliminar rangos en lugar de filas individuales
-      const rangesToDelete = [];
-      let rangeStart = rowsToDelete[0];
-      let rangeEnd = rowsToDelete[0];
+      // Obtener datos de la hoja actual a partir de la fila de inicio
+      const totalRows = currentSheet.getLastRow() - 1;
+      if (totalRows <= 0 || startRow >= totalRows) {
+        // Proceso completado, limpiar propiedades y finalizar
+        scriptProperties.deleteProperty('CLEANUP_START_ROW');
+        scriptProperties.deleteProperty('TOTAL_ROWS_TO_PROCESS');
+        console.log("=== LIMPIEZA COMPLETADA ===");
+        return;
+      }
       
-      for (let i = 1; i < rowsToDelete.length; i++) {
-        if (rowsToDelete[i] === rangeEnd - 1) {
-          // Fila consecutiva, extender el rango
-          rangeEnd = rowsToDelete[i];
+      // Calcular cuántas filas procesar en este lote
+      const rowsToProcess = Math.min(BATCH_SIZE, totalRows - startRow);
+      const endRow = startRow + rowsToProcess;
+      
+      // Obtener datos del lote actual
+      const dataRange = currentSheet.getRange(startRow + 2, 1, rowsToProcess, currentSheet.getLastColumn());
+      const data = dataRange.getValues();
+      
+      // Arrays para almacenar registros según su acción
+      const toBackup = [];
+      const rowsToDelete = [];
+      
+      // Contadores para estadísticas
+      let moveToBackupCount = 0;
+      let deleteOnlyCount = 0;
+      let keepCount = 0;
+      
+      // Procesar cada fila según el valor de la columna G
+      for (let i = 0; i < data.length; i++) {
+        const status = data[i][STATUS_COLUMN_INDEX];
+        const actualRowIndex = startRow + i + 2;
+        
+        if (MOVE_TO_BACKUP.includes(status)) {
+          // Mover a backup y luego eliminar
+          toBackup.push(data[i]);
+          rowsToDelete.push(actualRowIndex);
+          moveToBackupCount++;
+        } else if (DELETE_ONLY.includes(status)) {
+          // Solo eliminar
+          rowsToDelete.push(actualRowIndex);
+          deleteOnlyCount++;
         } else {
-          // No consecutiva, guardar el rango actual y comenzar uno nuevo
-          rangesToDelete.push({start: rangeEnd, end: rangeStart});
-          rangeStart = rowsToDelete[i];
-          rangeEnd = rowsToDelete[i];
+          // No hacer nada (mantener en la hoja actual)
+          keepCount++;
         }
       }
-      // Añadir el último rango
-      rangesToDelete.push({start: rangeEnd, end: rangeStart});
       
-      // Eliminar los rangos
-      for (const range of rangesToDelete) {
-        const rowCount = range.end - range.start + 1;
-        currentSheet.deleteRows(range.start, rowCount);
-        console.log(`Eliminado rango de filas ${range.start}-${range.end} (${rowCount} filas)`);
+      // Registrar estadísticas del lote actual
+      console.log(`Lote ${processedBatches + 1} (filas ${startRow+1}-${endRow}):`);
+      console.log(`- Registros a mover a backup: ${moveToBackupCount}`);
+      console.log(`- Registros solo a eliminar: ${deleteOnlyCount}`);
+      console.log(`- Registros a mantener: ${keepCount}`);
+      
+      // Mover registros al backup si hay alguno
+      if (toBackup.length > 0) {
+        const backupLastRow = backupSheet.getLastRow();
+        backupSheet.getRange(backupLastRow + 1, 1, toBackup.length, toBackup[0].length).setValues(toBackup);
+        console.log(`${toBackup.length} registros copiados a CON-TaskBackup`);
       }
+      
+      // Eliminar filas en orden inverso para evitar problemas con los índices
+      if (rowsToDelete.length > 0) {
+        rowsToDelete.sort((a, b) => b - a); // Ordenar en orden descendente
+        
+        // Optimización: Agrupar filas consecutivas para eliminar rangos en lugar de filas individuales
+        const rangesToDelete = [];
+        let rangeStart = rowsToDelete[0];
+        let rangeEnd = rowsToDelete[0];
+        
+        for (let i = 1; i < rowsToDelete.length; i++) {
+          if (rowsToDelete[i] === rangeEnd - 1) {
+            // Fila consecutiva, extender el rango
+            rangeEnd = rowsToDelete[i];
+          } else {
+            // No consecutiva, guardar el rango actual y comenzar uno nuevo
+            rangesToDelete.push({start: rangeEnd, end: rangeStart});
+            rangeStart = rowsToDelete[i];
+            rangeEnd = rowsToDelete[i];
+          }
+        }
+        // Añadir el último rango
+        rangesToDelete.push({start: rangeEnd, end: rangeStart});
+        
+        // Eliminar los rangos
+        for (const range of rangesToDelete) {
+          const rowCount = range.end - range.start + 1;
+          currentSheet.deleteRows(range.start, rowCount);
+          console.log(`Eliminado rango de filas ${range.start}-${range.end} (${rowCount} filas)`);
+        }
+      }
+      
+      // Actualizar el punto de inicio para la próxima ejecución
+      // Ajustar por las filas eliminadas
+      const deletedCount = rowsToDelete.length;
+      startRow = endRow - deletedCount;
+      scriptProperties.setProperty('CLEANUP_START_ROW', startRow.toString());
+      
+      processedBatches++;
+      
+      // Actualizar hojas para procesar siguiente lote
+      SpreadsheetApp.flush();
     }
     
-    // Actualizar el punto de inicio para la próxima ejecución
-    // Ajustar por las filas eliminadas
-    const deletedCount = rowsToDelete.length;
-    startRow = endRow - deletedCount;
-    scriptProperties.setProperty('CLEANUP_START_ROW', startRow.toString());
-    
+    // Si llegamos aquí es porque se alcanzó el límite de tiempo
     // Programar la siguiente ejecución si aún hay datos por procesar
-    if (startRow < totalRows - deletedCount) {
-      console.log(`Procesado hasta la fila ${startRow} de ${totalRows - deletedCount}. Programando siguiente lote...`);
-      // Crear un trigger para continuar el proceso en 1 minuto
-      deleteTriggersByFunctionNames(['cleanDubAppControl']);
-      ScriptApp.newTrigger('cleanDubAppControl')
+    if (startRow < (currentSheet.getLastRow() - 1)) {
+      console.log(`Procesado hasta la fila ${startRow}. Programando siguiente ejecución...`);
+      
+      // Eliminar cualquier trigger de continuación existente para evitar duplicados
+      deleteTriggersByFunctionNames(['cleanDubAppControl_Continuation']);
+      
+      // Crear un nuevo trigger para la función de continuación
+      ScriptApp.newTrigger('cleanDubAppControl_Continuation')
         .timeBased()
         .after(60 * 1000) // 1 minuto
         .create();
+      console.log("Nuevo trigger de continuación creado");
     } else {
       // Proceso completado
       scriptProperties.deleteProperty('CLEANUP_START_ROW');
@@ -791,6 +822,191 @@ function cleanDubAppControl() {
     // Enviar email con el error
     sendErrorEmail({
       triggerUid: 'cleanDubAppControl',
+      error: e
+    });
+    throw e;
+  }
+}
+
+/**
+ * Función de continuación para el proceso de limpieza
+ * Esta función es llamada mediante trigger cuando cleanDubAppControl
+ * alcanza su límite de tiempo
+ */
+function cleanDubAppControl_Continuation() {
+  // Recuperar el punto de inicio guardado
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const startRow = parseInt(scriptProperties.getProperty('CLEANUP_START_ROW') || '0');
+  
+  if (startRow === 0) {
+    console.log("No hay información de punto de inicio, finalizando.");
+    return;
+  }
+  
+  console.log(`Continuando limpieza desde la fila ${startRow}`);
+  
+  // Tiempo máximo de ejecución en milisegundos (6 minutos = 360000 ms)
+  const MAX_EXECUTION_TIME = 360000;
+  const startTime = new Date().getTime();
+  
+  try {
+    // Obtener la hoja de control
+    const ss = SpreadsheetApp.openById(allIDs['controlID']);
+    const currentSheet = ss.getSheetByName("CON-TaskCurrent");
+    const backupSheet = ss.getSheetByName("CON-TaskBackup");
+    
+    // Índice de la columna G (status)
+    const STATUS_COLUMN_INDEX = 6; // 0-based index para columna G
+    
+    // Valores para las diferentes acciones
+    const MOVE_TO_BACKUP = ["02 Incorporated", "07 Source missed key"];
+    const DELETE_ONLY = ["05 Discarded", "06 Unchanged"];
+    const KEEP = ["08 Jumped off", "01 Pending", "04 Retry"];
+    
+    // Procesar lotes hasta alcanzar el límite de tiempo o completar todas las filas
+    let processedBatches = 0;
+    let currentStartRow = startRow;
+    
+    while (true) {
+      // Verificar si queda tiempo suficiente para otro lote (30 segundos de margen)
+      const currentTime = new Date().getTime();
+      const elapsedTime = currentTime - startTime;
+      if (elapsedTime > (MAX_EXECUTION_TIME - 30000)) {
+        console.log(`Tiempo límite alcanzado después de ${processedBatches} lotes. Programando continuación...`);
+        break;
+      }
+      
+      // Obtener datos de la hoja actual a partir de la fila de inicio
+      const totalRows = currentSheet.getLastRow() - 1;
+      if (totalRows <= 0 || currentStartRow >= totalRows) {
+        // Proceso completado, limpiar propiedades y finalizar
+        scriptProperties.deleteProperty('CLEANUP_START_ROW');
+        scriptProperties.deleteProperty('TOTAL_ROWS_TO_PROCESS');
+        console.log("=== LIMPIEZA COMPLETADA ===");
+        return;
+      }
+      
+      // Calcular cuántas filas procesar en este lote
+      const BATCH_SIZE = 1000;
+      const rowsToProcess = Math.min(BATCH_SIZE, totalRows - currentStartRow);
+      const endRow = currentStartRow + rowsToProcess;
+      
+      // Obtener datos del lote actual
+      const dataRange = currentSheet.getRange(currentStartRow + 2, 1, rowsToProcess, currentSheet.getLastColumn());
+      const data = dataRange.getValues();
+      
+      // Arrays para almacenar registros según su acción
+      const toBackup = [];
+      const rowsToDelete = [];
+      
+      // Contadores para estadísticas
+      let moveToBackupCount = 0;
+      let deleteOnlyCount = 0;
+      let keepCount = 0;
+      
+      // Procesar cada fila según el valor de la columna G
+      for (let i = 0; i < data.length; i++) {
+        const status = data[i][STATUS_COLUMN_INDEX];
+        const actualRowIndex = currentStartRow + i + 2;
+        
+        if (MOVE_TO_BACKUP.includes(status)) {
+          // Mover a backup y luego eliminar
+          toBackup.push(data[i]);
+          rowsToDelete.push(actualRowIndex);
+          moveToBackupCount++;
+        } else if (DELETE_ONLY.includes(status)) {
+          // Solo eliminar
+          rowsToDelete.push(actualRowIndex);
+          deleteOnlyCount++;
+        } else {
+          // No hacer nada (mantener en la hoja actual)
+          keepCount++;
+        }
+      }
+      
+      // Registrar estadísticas del lote actual
+      console.log(`Lote continuación ${processedBatches + 1} (filas ${currentStartRow+1}-${endRow}):`);
+      console.log(`- Registros a mover a backup: ${moveToBackupCount}`);
+      console.log(`- Registros solo a eliminar: ${deleteOnlyCount}`);
+      console.log(`- Registros a mantener: ${keepCount}`);
+      
+      // Mover registros al backup si hay alguno
+      if (toBackup.length > 0) {
+        const backupLastRow = backupSheet.getLastRow();
+        backupSheet.getRange(backupLastRow + 1, 1, toBackup.length, toBackup[0].length).setValues(toBackup);
+        console.log(`${toBackup.length} registros copiados a CON-TaskBackup`);
+      }
+      
+      // Eliminar filas en orden inverso para evitar problemas con los índices
+      if (rowsToDelete.length > 0) {
+        rowsToDelete.sort((a, b) => b - a); // Ordenar en orden descendente
+        
+        // Optimización: Agrupar filas consecutivas para eliminar rangos en lugar de filas individuales
+        const rangesToDelete = [];
+        let rangeStart = rowsToDelete[0];
+        let rangeEnd = rowsToDelete[0];
+        
+        for (let i = 1; i < rowsToDelete.length; i++) {
+          if (rowsToDelete[i] === rangeEnd - 1) {
+            // Fila consecutiva, extender el rango
+            rangeEnd = rowsToDelete[i];
+          } else {
+            // No consecutiva, guardar el rango actual y comenzar uno nuevo
+            rangesToDelete.push({start: rangeEnd, end: rangeStart});
+            rangeStart = rowsToDelete[i];
+            rangeEnd = rowsToDelete[i];
+          }
+        }
+        // Añadir el último rango
+        rangesToDelete.push({start: rangeEnd, end: rangeStart});
+        
+        // Eliminar los rangos
+        for (const range of rangesToDelete) {
+          const rowCount = range.end - range.start + 1;
+          currentSheet.deleteRows(range.start, rowCount);
+          console.log(`Eliminado rango de filas ${range.start}-${range.end} (${rowCount} filas)`);
+        }
+      }
+      
+      // Actualizar el punto de inicio para la próxima ejecución
+      // Ajustar por las filas eliminadas
+      const deletedCount = rowsToDelete.length;
+      currentStartRow = endRow - deletedCount;
+      scriptProperties.setProperty('CLEANUP_START_ROW', currentStartRow.toString());
+      
+      processedBatches++;
+      
+      // Actualizar hojas para procesar siguiente lote
+      SpreadsheetApp.flush();
+    }
+    
+    // Si llegamos aquí es porque se alcanzó el límite de tiempo
+    // Programar la siguiente ejecución si aún hay datos por procesar
+    if (currentStartRow < (currentSheet.getLastRow() - 1)) {
+      console.log(`Procesado hasta la fila ${currentStartRow}. Programando siguiente ejecución...`);
+      
+      // Eliminar cualquier trigger de continuación existente para evitar duplicados
+      deleteTriggersByFunctionNames(['cleanDubAppControl_Continuation']);
+      
+      // Crear un nuevo trigger para la función de continuación
+      ScriptApp.newTrigger('cleanDubAppControl_Continuation')
+        .timeBased()
+        .after(60 * 1000) // 1 minuto
+        .create();
+      console.log("Nuevo trigger de continuación creado");
+    } else {
+      // Proceso completado
+      scriptProperties.deleteProperty('CLEANUP_START_ROW');
+      scriptProperties.deleteProperty('TOTAL_ROWS_TO_PROCESS');
+      console.log("=== LIMPIEZA COMPLETADA ===");
+    }
+  } catch (e) {
+    console.error(`Error en cleanDubAppControl_Continuation: ${e.toString()}`);
+    // Guardar el estado para poder continuar después
+    scriptProperties.setProperty('CLEANUP_START_ROW', currentStartRow.toString());
+    // Enviar email con el error
+    sendErrorEmail({
+      triggerUid: 'cleanDubAppControl_Continuation',
       error: e
     });
     throw e;

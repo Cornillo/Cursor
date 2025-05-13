@@ -1,0 +1,563 @@
+/**
+ * Script para planilla de usuario - DubApp Edición externa
+ * Utiliza servicio web para acceder a datos con permisos elevados
+ */
+
+// URL del servicio web - REEMPLAZAR con la URL obtenida al implementar DubAppDatesWebService.js
+const SERVICE_URL = "https://script.google.com/macros/s/AKfycbxgG7HCQ3cJ-BgnAms4SWrsj55PfrccFUhLDwvTJ-zlnHlkd54cQHLz-VdUUKhX-GQ1/exec";
+
+/**
+ * Función para procesar un ProjectID específico
+ */
+function procesarProjectID(projectID) {
+  try {
+    // Obtener email del usuario actual
+    const usuario = Session.getActiveUser().getEmail();
+    
+    // Llamar al servicio web sin encabezado de autorización
+    const response = UrlFetchApp.fetch(SERVICE_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "procesarProjectID",
+        projectID: projectID,
+        userEmail: usuario
+      }),
+      muteHttpExceptions: true
+    });
+    
+    // Analizar la respuesta
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
+    Logger.log("Código de respuesta procesarProjectID: " + responseCode);
+    
+    if (responseCode !== 200) {
+      throw new Error("Error en la solicitud: " + responseCode);
+    }
+    
+    // Procesar la respuesta
+    const result = JSON.parse(responseText);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    
+    // Actualizar las hojas locales con los datos recibidos
+    const data = result.data;
+    actualizarHojasLocales(
+      data.datosEdicion, 
+      data.datosDatos, 
+      data.datosDatos2, 
+      data.datosActuales
+    );
+    
+    // Guardar selección en Config!G2
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheetEdicion = ss.getSheetByName('Edicion');
+    const sheetConfig = ss.getSheetByName('Config');
+    const valorC2 = sheetEdicion.getRange('C2').getValue();
+    sheetConfig.getRange('G2').setValue(valorC2);
+    
+  } catch (error) {
+    Logger.log('Error en procesarProjectID: ' + error.toString());
+    SpreadsheetApp.getActiveSpreadsheet().toast("Error al procesar proyecto: " + error.message);
+    throw error;
+  }
+}
+
+/**
+ * Función para ejecutar manualmente el procesamiento de un ProjectID
+ */
+function llamarProcesarProjectID() {
+  // Obtener el projectID desde algún lugar, por ejemplo, un campo de entrada o una variable
+  var projectID = "C8CC5541-A241-4202-9F17-32FA8FDE51AC";
+  
+  // Llamar a procesarProjectID con el parámetro obtenido
+  procesarProjectID(projectID);
+}
+
+/**
+ * Función local para limpiar hojas de la planilla
+ */
+function limpiarHojas() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetEdicion = ss.getSheetByName('Edicion');
+  
+  // Obtener última fila con datos en columna B de Edición
+  const ultimaFilaB = sheetEdicion.getRange('B:B')
+                               .getValues()
+                               .filter(String)
+                               .length;
+  
+  // Obtener última columna con datos en fila 4 de Edición
+  const valoresFila4 = sheetEdicion.getRange(4, 1, 1, sheetEdicion.getMaxColumns()).getValues()[0];
+  const ultimaColumna = valoresFila4.reduce((max, cell, index) => 
+    cell !== '' ? index + 1 : max, 0);
+
+  // Limpiar hojas
+  if(ultimaColumna>0 && ultimaFilaB>0) {
+    const hojas = ['Edicion', 'Actuales', 'Datos', 'Datos2'];
+    hojas.forEach(nombreHoja => {
+      const hoja = ss.getSheetByName(nombreHoja);
+      if (hoja) {
+        const rango = hoja.getRange(4, 2, ultimaFilaB+1, ultimaColumna);
+        rango.clearContent();
+      }
+    });
+  }
+}
+
+/**
+ * Actualiza DWO-Event cuando hay cambios
+ */
+function actualizarDWOEvent() {
+  try {
+    // Obtener email del usuario actual
+    const usuario = Session.getActiveUser().getEmail();
+    
+    // Obtener datos locales que han cambiado
+    const cambios = obtenerCambiosLocales();
+    
+    if (cambios.length === 0) {
+      SpreadsheetApp.getActiveSpreadsheet().toast("No hay cambios para guardar");
+      return;
+    }
+    
+    // Llamar al servicio web sin encabezado de autorización
+    const response = UrlFetchApp.fetch(SERVICE_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "actualizarDWOEvent",
+        cambios: cambios,
+        userEmail: usuario
+      }),
+      muteHttpExceptions: true
+    });
+    
+    // Analizar la respuesta
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
+    Logger.log("Código de respuesta actualizarDWOEvent: " + responseCode);
+    
+    if (responseCode !== 200) {
+      throw new Error("Error en la solicitud: " + responseCode);
+    }
+    
+    // Procesar la respuesta
+    const result = JSON.parse(responseText);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    
+    // Actualizar celdas locales modificadas
+    actualizarCeldasActuales(result.data.celdasActualizadas);
+    
+    // Mostrar mensaje de éxito
+    SpreadsheetApp.getActiveSpreadsheet().toast("Cambios guardados correctamente");
+    
+  } catch (error) {
+    Logger.log('Error en actualizarDWOEvent: ' + error.toString());
+    SpreadsheetApp.getActiveSpreadsheet().toast("Error al guardar cambios: " + error.message);
+  }
+}
+
+/**
+ * Función para actualizar la planilla con el ProjectID
+ * Se llama de forma asincrónica desde AppSheet después de abrir la URL
+ */
+function actualizarPlanillaConProjectID(projectID) {
+  try {
+    Logger.log('Iniciando actualización con ProjectID: ' + projectID);
+    
+    // Procesar el ProjectID
+    procesarProjectID(projectID);
+    
+    Logger.log('Actualización completada exitosamente');
+    return {
+      success: true,
+      message: 'Planilla actualizada correctamente'
+    };
+    
+  } catch (error) {
+    Logger.log('Error en actualizarPlanillaConProjectID: ' + error.toString());
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+/**
+ * Obtiene o crea una planilla para un usuario específico usando el servicio web
+ */
+function obtenerPlanillaUsuario(userEmail) {
+  try {
+    // Llamar al servicio web sin encabezado de autorización
+    const response = UrlFetchApp.fetch(SERVICE_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "obtenerPlanillaUsuario",
+        userEmail: userEmail
+      }),
+      muteHttpExceptions: true
+    });
+    
+    // Analizar la respuesta
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
+    if (responseCode !== 200) {
+      throw new Error("Error en la solicitud: " + responseCode);
+    }
+    
+    // Procesar la respuesta
+    const result = JSON.parse(responseText);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    
+    return result.data;
+    
+  } catch (error) {
+    Logger.log('Error en obtenerPlanillaUsuario: ' + error.toString());
+    throw error;
+  }
+}
+
+// Trigger instalable para limpiar al abrir
+function onOpenInstalable() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const hojaEdicion = spreadsheet.getSheetByName('Edicion');
+  hojaEdicion.getRange('C2:C2').clearContent();
+
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('Proyectos DubApp')
+    .addItem('Cargar mis proyectos', 'cargaMisProyectos')
+    .addItem('Cargar todos los proyectos', 'cargaTodosLosProyectos')
+    .addSeparator()
+    .addItem('Grabar cambios', 'actualizarDWOEvent')
+    .addToUi();
+
+  limpiarHojas();
+}
+
+// Mantener el trigger simple para el menú
+function onOpen() {
+  onOpenInstalable();
+}
+
+/**
+ * Función para cargar mis proyectos
+ */
+function cargaMisProyectos() {
+  try {
+    // Obtener email del usuario actual
+    const usuario = Session.getActiveUser().getEmail();
+    
+    // Llamar al servicio web sin encabezado de autorización
+    const response = UrlFetchApp.fetch(SERVICE_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "cargaMisProyectos",
+        userEmail: usuario
+      }),
+      muteHttpExceptions: true
+    });
+    
+    // Analizar la respuesta
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
+    Logger.log("Código de respuesta cargaMisProyectos: " + responseCode);
+    
+    if (responseCode !== 200) {
+      throw new Error("Error en la solicitud: " + responseCode);
+    }
+    
+    // Procesar la respuesta
+    const result = JSON.parse(responseText);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    
+    // Actualizar hoja Config con los datos recibidos
+    actualizarConfigLocal(result.data.proyectos);
+    
+    // Mostrar mensaje de éxito
+    SpreadsheetApp.getActiveSpreadsheet().toast("Proyectos cargados correctamente");
+    
+  } catch (error) {
+    Logger.log('Error en cargaMisProyectos: ' + error.toString());
+    SpreadsheetApp.getActiveSpreadsheet().toast("Error al cargar proyectos: " + error.message);
+  }
+}
+
+/**
+ * Función para cargar todos los proyectos
+ */
+function cargaTodosLosProyectos() {
+  try {
+    // Obtener email del usuario actual
+    const usuario = Session.getActiveUser().getEmail();
+    
+    // Llamar al servicio web sin encabezado de autorización
+    const response = UrlFetchApp.fetch(SERVICE_URL, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        action: "cargaTodosLosProyectos",
+        userEmail: usuario
+      }),
+      muteHttpExceptions: true
+    });
+    
+    // Analizar la respuesta
+    const responseCode = response.getResponseCode();
+    const responseText = response.getContentText();
+    
+    Logger.log("Código de respuesta cargaTodosLosProyectos: " + responseCode);
+    Logger.log("Respuesta: " + responseText.substring(0, 200) + "...");
+    
+    if (responseCode !== 200) {
+      throw new Error("Error en la solicitud: " + responseCode + " - " + responseText.substring(0, 100) + "...");
+    }
+    
+    // Procesar la respuesta
+    const result = JSON.parse(responseText);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+    
+    // Actualizar hoja Config con los datos recibidos
+    actualizarConfigLocal(result.data.proyectos);
+    
+    // Mostrar mensaje de éxito
+    SpreadsheetApp.getActiveSpreadsheet().toast("Todos los proyectos cargados correctamente");
+    
+  } catch (error) {
+    Logger.log('Error en cargaTodosLosProyectos: ' + error.toString());
+    SpreadsheetApp.getActiveSpreadsheet().toast("Error al cargar todos los proyectos: " + error.message);
+  }
+}
+
+/**
+ * Actualizar la hoja Config con proyectos
+ */
+function actualizarConfigLocal(proyectos) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetConfig = ss.getSheetByName('Config');
+  
+  // Limpiar datos anteriores
+  sheetConfig.getRange('B3:C').clearContent();
+  
+  // Escribir datos
+  if (proyectos && proyectos.length > 0) {
+    sheetConfig.getRange(3, 2, proyectos.length, 2).setValues(proyectos);
+  }
+}
+
+/**
+ * Obtener cambios locales para enviar al servicio
+ */
+function obtenerCambiosLocales() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetEdicion = ss.getSheetByName('Edicion');
+  const sheetActuales = ss.getSheetByName('Actuales');
+  const sheetDatos = ss.getSheetByName('Datos');
+  const sheetDatos2 = ss.getSheetByName('Datos2');
+  
+  // Obtener dimensiones
+  const ultimaFila = Math.max(
+    sheetEdicion.getLastRow(),
+    sheetActuales.getLastRow()
+  );
+  
+  const ultimaColumna = Math.max(
+    sheetEdicion.getLastColumn(),
+    sheetActuales.getLastColumn()
+  );
+  
+  // Obtener valores
+  const valoresEdicion = sheetEdicion.getRange(5, 3, ultimaFila - 4, ultimaColumna - 2).getValues();
+  const valoresActuales = sheetActuales.getRange(5, 3, ultimaFila - 4, ultimaColumna - 2).getValues();
+  const valoresDatos = sheetDatos.getRange(5, 3, ultimaFila - 4, ultimaColumna - 2).getValues();
+  const valoresDatos2 = sheetDatos2.getRange(5, 3, ultimaFila - 4, ultimaColumna - 2).getValues();
+  
+  // Array para cambios
+  const cambios = [];
+  
+  // Comparar valores
+  for (let i = 0; i < valoresEdicion.length; i++) {
+    for (let j = 0; j < valoresEdicion[i].length; j++) {
+      const valorEdicion = valoresEdicion[i][j];
+      const valorActuales = valoresActuales[i][j];
+      const valorDatos = valoresDatos[i][j];
+      const valorDatos2 = valoresDatos2[i][j];
+      
+      // Convertir fechas para comparación
+      const fechaEdicion = valorEdicion instanceof Date ? valorEdicion.getTime() : valorEdicion;
+      const fechaActual = valorActuales instanceof Date ? valorActuales.getTime() : valorActuales;
+      
+      if (fechaEdicion !== fechaActual && 
+          valorDatos && 
+          valorDatos2 !== 'Finalizado') {
+        
+        // Guardar cambio
+        cambios.push({
+          fila: i + 5,           // Fila real (i + 5)
+          columna: j + 3,        // Columna real (j + 3)
+          valorNuevo: valorEdicion,
+          valorAnterior: valorActuales,
+          eventID: valorDatos
+        });
+      }
+    }
+  }
+  
+  return cambios;
+}
+
+/**
+ * Actualizar celdas en Actuales con los valores actualizados
+ */
+function actualizarCeldasActuales(celdasActualizadas) {
+  if (!celdasActualizadas || celdasActualizadas.length === 0) return;
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetActuales = ss.getSheetByName('Actuales');
+  
+  celdasActualizadas.forEach(celda => {
+    sheetActuales.getRange(celda.fila, celda.columna).setValue(celda.valor);
+  });
+}
+
+/**
+ * Actualizar las hojas locales con los datos recibidos del servicio
+ */
+function actualizarHojasLocales(datosEdicion, datosDatos, datosDatos2, datosActuales) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetEdicion = ss.getSheetByName('Edicion');
+  const sheetDatos = ss.getSheetByName('Datos');
+  const sheetDatos2 = ss.getSheetByName('Datos2');
+  const sheetActuales = ss.getSheetByName('Actuales');
+  
+  // Verificar que las hojas existan
+  if (!sheetEdicion || !sheetDatos || !sheetDatos2 || !sheetActuales) {
+    throw new Error('No se encontraron todas las hojas necesarias');
+  }
+  
+  // Calcular dimensiones reales usadas
+  const ultimaFila = datosEdicion.length;
+  const ultimaColumna = datosEdicion[0] ? datosEdicion[0].length : 0;
+  
+  // Escribir datos en Edicion (desde fila 4)
+  if (ultimaFila > 3 && ultimaColumna > 0) {
+    sheetEdicion.getRange(4, 1, ultimaFila - 3, ultimaColumna).setValues(
+      datosEdicion.slice(3)
+    );
+    
+    // Escribir datos en Datos
+    sheetDatos.getRange(4, 1, ultimaFila - 3, ultimaColumna).setValues(
+      datosDatos.slice(3)
+    );
+    
+    // Escribir datos en Datos2
+    sheetDatos2.getRange(4, 1, ultimaFila - 3, ultimaColumna).setValues(
+      datosDatos2.slice(3)
+    );
+    
+    // Escribir datos en Actuales (desde fila 5, columna 3)
+    if (ultimaFila > 4 && ultimaColumna > 2) {
+      const actualesData = datosActuales.slice(4);
+      sheetActuales.getRange(5, 3, actualesData.length, ultimaColumna - 2).setValues(
+        actualesData.map(row => row.slice(2))
+      );
+    }
+  }
+}
+
+/**
+ * Trigger que detecta cambios en celda C2 de Edicion
+ */
+function onEditInstalable() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const editSheet = ss.getSheetByName('Edicion'); 
+  const nuevoValor = editSheet.getRange('C2').getValue();
+  
+  // Buscar en Config
+  const configSheet = ss.getSheetByName('Config');
+  const configData = configSheet.getRange('B3:C' + configSheet.getLastRow()).getValues();
+  const actualValor = configSheet.getRange('G2').getValue();
+
+  if(nuevoValor===actualValor) {return};
+  
+  // Buscar coincidencia en columna B (índice 0) y obtener ProjectID de columna C (índice 1)
+  const proyectoEncontrado = configData.find(row => row[0] === nuevoValor);
+  
+  if (proyectoEncontrado) {
+    const projectID = proyectoEncontrado[1];
+    limpiarHojas();
+    procesarProjectID(projectID);
+  } else {
+    SpreadsheetApp.getUi().alert('Proyecto no encontrado en Config');
+  }
+}
+
+/**
+ * Función para probar si el servicio web está funcionando correctamente
+ */
+function probarServicioWeb() {
+  try {
+    const response = UrlFetchApp.fetch(SERVICE_URL, {
+      muteHttpExceptions: true
+    });
+    
+    Logger.log("Código de respuesta: " + response.getResponseCode());
+    Logger.log("Respuesta: " + response.getContentText());
+    
+    return {
+      codigo: response.getResponseCode(),
+      respuesta: response.getContentText()
+    };
+  } catch (error) {
+    Logger.log("Error: " + error.toString());
+    return {
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * Crea o configura los triggers necesarios para la planilla
+ */
+function configurarTriggers() {
+  // Eliminar triggers existentes
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    ScriptApp.deleteTrigger(triggers[i]);
+  }
+  
+  // Crear trigger para onOpen
+  ScriptApp.newTrigger('onOpenInstalable')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onOpen()
+    .create();
+  
+  // Crear trigger para onEdit
+  ScriptApp.newTrigger('onEditInstalable')
+    .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+    .onEdit()
+    .create();
+  
+  return 'Triggers configurados correctamente';
+}

@@ -133,7 +133,10 @@ function retryOperation(operation, maxRetries = 3, delay = 1000) {
             return operation();
         } catch (error) {
             attempts++;
-            if (attempts === maxRetries) throw error;
+            if (attempts === maxRetries) {
+                console.error("Error después de " + maxRetries + " intentos: " + error.toString());
+                throw error; // Considera agregar más información al error
+            }
             Utilities.sleep(delay);
         }
     }

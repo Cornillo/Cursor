@@ -230,6 +230,7 @@ function llamarProcesarProjectID() {
 }
 
 function OpenSht(sheetNameAux, ndxColValues, keyCol, keyValue, ssName) {
+Logger.log("sheetNameAux: "+sheetNameAux+" / ndxColValues:"+ndxColValues+" / keyCol:"+keyCol+" / keyValue:"+keyValue+" /ssName: "+ssName);
   // Cargar hoja y valores
   LazyLoad(ssName, sheetNameAux);
   auxSheet = containerSheet;
@@ -383,7 +384,14 @@ function actualizarDWOEvent() {
   actualizaciones.forEach(update => {
     // Actualizar DWO-Event
     const rangoEvento = containerSheet.getRange(update.fila, 1, 1, 61);
-    rangoEvento.getCell(1, 5).setValue(update.valor);
+    
+    // MODIFICACIÓN: Formatear el valor si es una fecha para asegurar formato dd/MM/yyyy
+    let valorFinal = update.valor;
+    if (update.valor instanceof Date) {
+      valorFinal = Utilities.formatDate(update.valor, timezone, timeformat);
+    }
+    
+    rangoEvento.getCell(1, 5).setValue(valorFinal);
     rangoEvento.getCell(1, 60).setValue(usuario);
     rangoEvento.getCell(1, 61).setValue(fechaHora);
     
@@ -399,9 +407,13 @@ function actualizarDWOEvent() {
     ]);
   });
 
-  // Actualizar solo las celdas modificadas en Actuales
+  // Actualizar también las celdas de Actuales
   celdasActuales.forEach(celda => {
-    sheetActuales.getRange(celda.fila, celda.columna).setValue(celda.valor);
+    let valorFinal = celda.valor;
+    if (celda.valor instanceof Date) {
+      valorFinal = Utilities.formatDate(celda.valor, timezone, timeformat);
+    }
+    sheetActuales.getRange(celda.fila, celda.columna).setValue(valorFinal);
   });
 }
 
@@ -618,7 +630,7 @@ function onEditInstalable() {
   const configData = configSheet.getRange('B3:C' + configSheet.getLastRow()).getValues();
   const actualValor = configSheet.getRange('G2').getValue();
 
-  if(nuevoValor===actualValor) {return};
+  //if(nuevoValor===actualValor) {return};
   
   // Buscar coincidencia en columna B (índice 0) y obtener ProjectID de columna C (índice 1)
   const proyectoEncontrado = configData.find(row => row[0] === nuevoValor);

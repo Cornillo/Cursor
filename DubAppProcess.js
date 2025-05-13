@@ -90,6 +90,7 @@ var ssPrevious = null;
 var sheetNamePrevious = null;
 
 //Global ID
+const installation = allIDs["instalation"];  // Nueva variable global
 
 //Count check
 var counter = {
@@ -516,8 +517,8 @@ function DataLoad(ssAux, sheetNameAux, keyAux) {
 
   //Check if previous call was equal 
   if(ssPrevious === ssAux && sheetNamePrevious === sheetNameAux) {return actionReturn;}
-  if( ssAux === "DubAppActive01") {
-    ssAux2 = "DubAppTotal01";
+  if( ssAux === "DubAppActive"+installation) {
+    ssAux2 = "DubAppTotal"+installation;
   } else {
     if(auxLabel == "[Split]") {
       let auxRow = sourceNDX.indexOf(keyAux);
@@ -528,10 +529,10 @@ function DataLoad(ssAux, sheetNameAux, keyAux) {
         .reduce((acc, c) => (acc * 26) + (c.charCodeAt(0) - 'A'.charCodeAt(0) + 1), 0) - 1;
       let dwoKeyAux = sourceValues[auxRow][dwoCol];
 
-      LazyLoad("DubAppActive01", "DWO");
+      LazyLoad("DubAppActive"+installation, "DWO");
       let activeDWONDX = containerNDX;
 
-      LazyLoad("DubAppTotal01", sheetNameAux);
+      LazyLoad("DubAppTotal"+installation, sheetNameAux);
       let totalDWOValues = containerValues;
       let totalDWONDX = containerNDX;
 
@@ -545,12 +546,12 @@ function DataLoad(ssAux, sheetNameAux, keyAux) {
                   totalDWOValues[dwoRow][58] === "(01) On track: DWO";
          })())
       ) {
-        ssAux2 = "DubAppActive01";
+        ssAux2 = "DubAppActive"+installation;
       } else {
-        ssAux2 = "DubAppLogs01";
+        ssAux2 = "DubAppLogs"+installation;
       }
     } else {
-      ssAux2 = "DubAppActive01";
+      ssAux2 = "DubAppActive"+installation;
     }
   };
 
@@ -566,7 +567,7 @@ function DataLoad(ssAux, sheetNameAux, keyAux) {
   
   if(sheetNamePrevious !== sheetNameAux) {
     sheetNameAux2 = sheetNameAux+"Log";
-    LazyLoad("DubAppLogs01", sheetNameAux2);
+    LazyLoad("DubAppLogs"+installation, sheetNameAux2);
   
     logSheet = containerSheet;
     logValues = containerValues;
@@ -613,8 +614,6 @@ function ObtainVariation(taskAux) {
  var sourceData = sourceValues[sourceRow]; 
  witnessRow = witnessNDX.indexOf(aux3);
  if(witnessRow == -1) {
-   // Not exist in witness
-   aux3=taskAux[0]+aux3;
    //Check if already appended in the same batch
    if(inhibitAppend(taskAux[3], taskAux[0], aux3)) {
      //Ok to append
@@ -914,7 +913,7 @@ function clearAllLocks() {
 
 function uncodeChannelEventType(chainSource, chainWitness) {
   // Cargamos la hoja DWO-ChannelEventType usando LazyLoad
-  LazyLoad("DubAppActive01", "DWO-ChannelEventType");
+  LazyLoad("DubAppActive"+installation, "DWO-ChannelEventType");
   
   // Ahora podemos usar las variables globales que LazyLoad ha inicializado:
   // containerValues y containerNDX
@@ -1178,3 +1177,4 @@ function checkLockStatus() {
     return { error: error.message };
   }
 }
+

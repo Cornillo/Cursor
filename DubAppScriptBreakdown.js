@@ -3,31 +3,57 @@
  * 
  * Main Execution Flow:
  * 1. ScriptUpload() - Función principal de procesamiento
- *    ├── 2. initializeGlobals() - Inicializa variables globales
- *    ├── 3. OpenSheet() - Abre y carga hojas de cálculo
- *    ├── 4. ScriptBreakdown() - Procesa el script subido
- *    │    ├── 5. ExtractDialogLine() - Extrae diálogos del script
- *    │    └── 6. ExtractCharacter() - Extrae personajes del script
- *    └── 7. schedulePDFWitness() - Programa la generación del PDF
- *         └── 8. asyncPDFWitness() - Ejecuta la generación del PDF
- *              └── 9. PDFWitness() - Genera el PDF con el desglose
+ *    ├── initializeGlobals() - Inicializa variables globales
+ *    ├── OpenSheet() - Abre y carga hojas de cálculo
+ *    │    └── LazyLoad() - Carga perezosa de datos de hojas
+ *    ├── ScriptBreakdown() - Procesa el script subido
+ *    │    ├── OpenSht() - Abre y filtra hojas de cálculo
+ *    │    │    └── LazyLoad() - Carga perezosa de datos de hojas
+ *    │    ├── ExtractDialogLine() - Extrae diálogos del script
+ *    │    │    └── EstimatedTimecode() - Calcula tiempos estimados
+ *    │    │         └── LoopNumber() - Calcula número de loop según timecode
+ *    │    ├── ReloadDialogLine() - Recarga líneas de diálogo
+ *    │    │    └── Time2String() - Convierte tiempo a string formateado
+ *    │    │    └── Time2Seconds() - Convierte tiempo a segundos
+ *    │    ├── ExtractCharacter() - Extrae personajes del script
+ *    │    │    ├── CharacterName() - Normaliza nombres de personajes
+ *    │    │    ├── OpenSheet() - Carga DWO_Songs para verificar atributos
+ *    │    │    └── Rand() - Genera números aleatorios para IDs
+ *    │    └── AddLoops2Character() - Añade loops a personajes
+ *    ├── processControlChanges() - Procesa cambios pendientes en control
+ *    └── schedulePDFWitness() - Programa la generación del PDF
+ *         └── asyncPDFWitness() - Ejecuta la generación del PDF de forma asíncrona
+ *              └── PDFWitness() - Genera el PDF con el desglose
+ *                   ├── OpenSheet() - Abre hoja con datos de personajes y script
+ *                   ├── Time2String() - Formatea tiempos para mostrar
+ *                   └── inhibited - Utiliza lista de tipos ignorados
  * 
  * Helper Functions:
- * - OpenSht() - Abre y filtra hojas de cálculo
- * - String2Seconds() - Convierte timecode a segundos
- * - Time2Seconds() - Convierte tiempo a segundos
- * - Time2String() - Convierte tiempo a string formateado
- * - Seconds2String() - Convierte segundos a timecode
- * - CharacterName() - Normaliza nombres de personajes
- * - LoopNumber() - Calcula número de loop según timecode
- * - ClearRow() - Limpia filas en hojas de cálculo
- * - processControlChanges() - Procesa cambios pendientes
- * - cleanupResources() - Limpia recursos temporales
- * - logOperationStatus() - Registra estado de operaciones
- * - sendErrorNotification() - Envía notificaciones de error
+ * - OpenSht() - Abre y filtra hojas de cálculo según múltiples criterios
+ * - OpenSheet() - Abre y carga hojas de cálculo según criterios simples
+ * - LazyLoad() - Carga eficiente de datos de hojas
+ * - String2Seconds() - Convierte timecode (string) a segundos
+ * - Time2Seconds() - Convierte tiempo (fecha o string) a segundos
+ * - Time2String() - Convierte tiempo a string formateado hh:mm:ss
+ * - Seconds2String() - Convierte segundos a timecode hh:mm:ss
+ * - CharacterName() - Normaliza nombres de personajes (quita acentos, paréntesis, etc.)
+ * - LoopNumber() - Calcula número de loop según timecode (divide por 15 segundos)
+ * - ClearRow() - Limpia filas específicas en hojas de cálculo
+ * - Rand() - Genera números aleatorios para IDs
+ * - processControlChanges() - Procesa cambios pendientes en tabla de control
+ * - cleanupResources() - Limpia recursos temporales y triggers
+ * - logOperationStatus() - Registra estado de operaciones para monitoreo
+ * - sendErrorNotification() - Envía notificaciones de error por email
+ * - getEmailContactInfo() - Obtiene información de contacto para envío de emails
  * 
- * API Endpoints:
- * - doPost(e) - Maneja solicitudes POST
+ * Funciones de prueba:
+ * - call() - Prueba de ScriptUpload con parámetros de Disney+
+ * - call2() - Prueba de ScriptUpload con parámetros de Netflix (test)
+ * - call3() - Prueba directa de PDFWitness
+ * - call4() - Prueba de ScriptUpload con otro proyecto de Netflix
+ * 
+ * API Endpoints (referenciados):
+ * - doPost(e) - Maneja solicitudes POST para iniciar procesamiento
  * - doGet(e) - Maneja solicitudes GET y consulta de estado
  * - getUserStatus() - Obtiene estado de procesamiento
  */
@@ -105,14 +131,51 @@ const CONFIG = {
 	BCC_EMAIL: "appsheet@mediaaccesscompany.com"
 };
 
+// Variable global para almacenar claves ProductionID-CharacterID (solo se inicializa cuando se necesita)
+var characterProductionKeys = null;
+
 /**
- * Función para logging condicional basado en verboseFlag
- * Solo imprime mensajes si verboseFlag es true o si isImportant es true
+ * Inicializa y devuelve el array de claves ProductionID-CharacterID
+ * @returns {Array} - Array con las claves ProductionID-CharacterID
  */
-function conditionalLog(message, isImportant = false) {
-    // Siempre mostrar mensajes marcados como importantes, independientemente de verboseFlag
-    if (isImportant || verboseFlag) {
-        console.log(message);
+function getCharacterProductionKeys() {
+    // Inicializar bajo demanda (lazy initialization)
+    if (characterProductionKeys === null) {
+        // Crear el array con map() si hay datos, o array vacío si no hay
+        characterProductionKeys = dwoCharacterProductionData && dwoCharacterProductionData.length ? 
+            dwoCharacterProductionData.map(r => r[2] + "-" + r[1]) : [];
+            
+        if(verboseFlag) {
+            console.log(`Array de ProductionID-CharacterID inicializado con ${characterProductionKeys.length} entradas`);
+        }
+    }
+    return characterProductionKeys;
+}
+
+/**
+ * Verifica si existe una combinación ProductionID-CharacterID
+ * @param {string} characterID - ID del personaje
+ * @param {string} productionID - ID de la producción
+ * @returns {number} - Índice en la matriz original o -1 si no existe
+ */
+function findCharacterProductionIndex(characterID, productionID) {
+    const keys = getCharacterProductionKeys();
+    const key = productionID + "-" + characterID;
+    return keys.indexOf(key);
+}
+
+/**
+ * Añade una nueva entrada al array de claves
+ * @param {string} characterID - ID del personaje
+ * @param {string} productionID - ID de la producción
+ */
+function registerCharacterProduction(characterID, productionID) {
+    const keys = getCharacterProductionKeys();
+    const key = productionID + "-" + characterID;
+    keys.push(key);
+    
+    if(verboseFlag) {
+        console.log(`Registrada nueva combinación: ${key}`);
     }
 }
 
@@ -125,12 +188,12 @@ function initializeGlobals() {
 
 function call() {
 	ScriptUpload(
-		"DCVI",
-		"5A1F389B-E479-49A1-9F4C-87FECF8E3156",
-		"pBVMnTTl",
-		"appsheet@mediaaccesscompany.com",
-		"F613c3753",
-		"DCVI - Big City Greens - S4 - Episode F101 - Dialogue Translation (only finals)"
+		"Netflix",
+		"140604CA-4517-4736-A4AE-65DEBA8F7A2A",
+		"LTJKi5VC",
+		"transcreator15@mediaaccesscompany.com",
+		"F65d8420d",
+		"Netflix - Untamed: Limited series - S01 - Episode 103 - ARS conform"
 	);
 	}
 
@@ -164,589 +227,416 @@ function call4() {
 * Función principal de carga de scripts
 */
 function ScriptUpload(channelID, projectID, productionID, userID, file_ID, pdfname) {
-    console.log(`Iniciando proceso inmediato: ${channelID} / ${projectID} / ${productionID} / ${userID} / ${file_ID}`);
-    
-    try {
-        // Abrir la hoja de cálculo y actualizar el estado a "En proceso"
-        ssActive = SpreadsheetApp.openById(sheetID);
-        isNow = Utilities.formatDate(new Date(), TIMEZONE, TIMESTAMP_FORMAT);
-        
-        // Load DWO_FIles para actualizar el estado
-        OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
-        var auxSheetDWO_Files_temp = auxSheet;
-        var auxRowDWO_Files_temp = auxRow + 1;
-        auxCaseDWO_Files = auxFilteredValues;  
-        
-        // Log estado actual del archivo
-        conditionalLog(`TRAZABILIDAD - Estado actual antes del procesamiento: ${auxCaseDWO_Files[0][11]}, Version: ${auxCaseDWO_Files[0][14]}, EventID: ${auxCaseDWO_Files[0][3]}`);
-        
-        // NO actualizar el estado al principio, solo leer el estado existente
-        // El estado se actualizará al final del procesamiento
-        
-        // Crear una ejecución separada para iniciar el proceso principal
-        // Usar PropertiesService en lugar de CacheService para mayor confiabilidad
-        const props = PropertiesService.getScriptProperties();
-        const jobKey = "ScriptUpload_" + file_ID;
-        
-        // Almacenar los parámetros en PropertiesService
-        props.setProperty(jobKey, JSON.stringify({
-            channelID: channelID,
-            projectID: projectID,
-            productionID: productionID,
-            userID: userID,
-            file_ID: file_ID,
-            pdfname: pdfname,
-            startTime: isNow
-        }));
-        
-        // Configurar un trigger que se ejecute inmediatamente
-        ScriptApp.newTrigger('processScriptUploadFromCache')
-            .timeBased()
-            .after(1000) // 1 segundo de retraso mínimo
-            .create();
-        
-        conditionalLog('Proceso iniciado en background, script retornando inmediatamente', true);
-        
-        // Retornar inmediatamente para que AppSheet no espere
-        return auxCaseDWO_Files[0][11]; // Retornar el estado actual sin modificarlo
-        
-    } catch (error) {
-        console.error('Error al iniciar el proceso:', error);
-        sendErrorNotification(error, 'ScriptUpload', {
-            channelID: channelID,
-            projectID: projectID,
-            productionID: productionID,
-            userID: userID,
-            file_ID: file_ID
-        });
-        return "(09) Failed: DWOFiles - Error: " + error.message;
-    }
+
+console.log(channelID+" / "+projectID+" / "+productionID+" / "+userID+" / "+file_ID);
+// Open sheet
+ssActive = SpreadsheetApp.openById(sheetID);
+isNow = Utilities.formatDate(new Date(), TIMEZONE, TIMESTAMP_FORMAT);
+
+// Inicializar variables globales
+initializeGlobals();
+
+// Load DWO_FIles
+OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
+auxSheetDWO_Files = auxSheet;
+auxCaseDWO_Files = auxFilteredValues;
+auxRowDWO_Files = auxRow + 1;
+eventID = auxCaseDWO_Files[0][3];
+auxVersion = auxCaseDWO_Files[0][14];
+var auxStatus = auxCaseDWO_Files[0][11];
+
+//First round
+if (auxStatus === "(01) Pending: DWOFiles") {
+	var fileName = auxCaseDWO_Files[0][6].replace(appRepository, "");
+
+	// Obtain script file
+	var folder = DriveApp.getFolderById(folderId);
+	var files = folder.getFilesByName(fileName);
+
+	if (files.hasNext()) {
+		var file = files.next();
+		var fileID = file.getId();
+		var resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
+		// Determine status
+		var statusAux;
+		if (resultAux === "" && (fasttrack || (!characterRevisionFlag && !timecodeOutRevisionFlag))) {
+			statusAux = "(99) Completed: DWOFiles";
+		} else {
+			statusAux = characterRevisionFlag && timecodeOutRevisionFlag
+				? "(04) Check pending / New characters & Timecode out: DWOFiles"
+				: characterRevisionFlag
+					? "(02) Check pending / New characters: DWOFiles"
+					: timecodeOutRevisionFlag
+						? "(03) Check pending / Timecode out: DWOFiles"
+						: "(09) Failed: DWOFiles";
+		}
+	} else {
+		resultAux = "File not found: " + fileName;
+		console.log(resultAux);
+		statusAux = "(09) Failed: DWOFiles";
+	}
+} else if (auxStatus === "(05) Complete Upload: DWOFiles") {
+	ReloadDialogLine(file_ID);
+	fasttrack = true;
+	var resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
+	statusAux = "(99) Completed: DWOFiles";
 }
 
-/**
-* Función que recupera datos de las propiedades del script y ejecuta el procesamiento
-*/
-function processScriptUploadFromCache(e) {
-    // Limpiar el trigger que ejecutó esta función
-    try {
-        // Obtener todos los triggers y buscar el que coincide con el ID actual
-        const allTriggers = ScriptApp.getProjectTriggers();
-        for (let i = 0; i < allTriggers.length; i++) {
-            // Verificar si es el trigger actual
-            if (allTriggers[i].getUniqueId() === e.triggerUid) {
-                // Eliminar el trigger usando el objeto correcto, no el ID
-                ScriptApp.deleteTrigger(allTriggers[i]);
-                break;
-            }
-        }
-    } catch (error) {
-        console.error("Error al eliminar trigger:", error);
-    }
+//Reapertura forzada
+//dwoCharacterProduction = ssActive.getSheetByName("DWO_CharacterProduction");
+
+if (statusAux === "(99) Completed: DWOFiles") {
+    let characterRowsToWrite = []; // Array para acumular filas de DWO_Character
+    let newRows = []; // Para casos nuevos
+    let updatedRows = []; // Para casos existentes
     
-    // Buscar todos los trabajos pendientes en las propiedades
-    const props = PropertiesService.getScriptProperties();
-    const allProps = props.getProperties();
-    
-    try {
-        // Obtener todas las claves que comienzan con ScriptUpload_
-        const pendingJobs = Object.keys(allProps)
-            .filter(key => key.startsWith("ScriptUpload_"));
-            
-        if (pendingJobs.length === 0) {
-            conditionalLog("No hay trabajos pendientes en las propiedades");
-            return;
-        }
+    logOperationStatus('InicioProcesamiento', {
+        totalCharacters: characters.length,
+        version: auxVersion,
+        productionID: productionID
+    });
+
+    for (let i = 0; i < characters.length; i++) {
+        const fila = characters[i]; 
+        if (fila[7] === "0") { continue; }
         
-        conditionalLog(`Se encontraron ${pendingJobs.length} trabajos pendientes`);
-        
-        // Procesar el primer trabajo pendiente
-        const firstJobKey = pendingJobs[0];
         try {
-            const params = JSON.parse(allProps[firstJobKey]);
-            
-            // Eliminar este trabajo de las propiedades para que no se procese nuevamente
-            props.deleteProperty(firstJobKey);
-            
-            conditionalLog(`Procesando trabajo: ${firstJobKey} - Parámetros: ${JSON.stringify(params)}`);
-            
-            // Procesar este trabajo
-            processScriptUpload(params);
-            
-            conditionalLog("Trabajo procesado exitosamente: " + firstJobKey);
-            
-        } catch (error) {
-            console.error('Error al procesar trabajo desde propiedades:', error);
-            props.deleteProperty(firstJobKey); // Eliminar trabajo con error
-        }
-        
-        // Verificar de nuevo todas las claves tras el procesamiento
-        const remainingJobsKeys = Object.keys(props.getProperties())
-            .filter(key => key.startsWith("ScriptUpload_"));
-        
-        // Si hay más trabajos pendientes, programar otra ejecución
-        if (remainingJobsKeys.length > 0) {
-            conditionalLog(`Quedan ${remainingJobsKeys.length} trabajos pendientes, programando próxima ejecución`);
-            ScriptApp.newTrigger('processScriptUploadFromCache')
-                .timeBased()
-                .after(10000) // 10 segundos entre procesamiento de trabajos
-                .create();
-        } else {
-            conditionalLog("No quedan más trabajos pendientes");
-        }
-    } catch (propError) {
-        console.error("Error al manejar las propiedades:", propError);
-        // Asegurar que siempre se programe el siguiente trigger si hay un error
-        ScriptApp.newTrigger('processScriptUploadFromCache')
-            .timeBased()
-            .after(30000) // 30 segundos si hubo un error
-            .create();
-    }
-}
-
-/**
-* Función que procesa la carga de scripts
-*/
-function processScriptUpload(params) {
-    try {
-        const channelID = params.channelID;
-        const projectID = params.projectID;
-        const productionID = params.productionID;
-        const userID = params.userID;
-        const file_ID = params.file_ID;
-        const pdfname = params.pdfname;
-        
-        if (!channelID || !projectID || !productionID || !userID || !file_ID) {
-            throw new Error('Parámetros incompletos para processScriptUpload');
-        }
-
-        conditionalLog(`Ejecutando proceso: ${channelID} / ${projectID} / ${productionID} / ${userID} / ${file_ID}`);
-
-        // Open sheet (de nuevo, porque esta es una ejecución separada)
-        ssActive = SpreadsheetApp.openById(sheetID);
-        isNow = Utilities.formatDate(new Date(), TIMEZONE, TIMESTAMP_FORMAT);
-
-        // Inicializar variables globales
-        initializeGlobals();
-
-        // Load DWO_FIles
-        OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
-        auxSheetDWO_Files = auxSheet;
-        auxCaseDWO_Files = auxFilteredValues;
-        auxRowDWO_Files = auxRow + 1;
-        eventID = auxCaseDWO_Files[0][3];
-        auxVersion = auxCaseDWO_Files[0][14];
-        var auxStatus = auxCaseDWO_Files[0][11];
-        var resultAux = "";
-        var statusAux = "";
-
-        conditionalLog(`TRAZABILIDAD - Iniciando processScriptUpload con auxStatus: ${auxStatus}, auxVersion: ${auxVersion}, eventID: ${eventID}`);
-
-        //First round
-        if (auxStatus === "(01) Pending: DWOFiles") {
-            conditionalLog(`TRAZABILIDAD - Entrando en flujo "(01) Pending"`);
-            var fileName = auxCaseDWO_Files[0][6].replace(appRepository, "");
-
-            // Obtain script file
-            var folder = DriveApp.getFolderById(folderId);
-            var files = folder.getFilesByName(fileName);
-
-            if (files.hasNext()) {
-                var file = files.next();
-                var fileID = file.getId();
-                conditionalLog(`TRAZABILIDAD - Iniciando ScriptBreakdown para archivo: ${fileName}, ID: ${fileID}`);
-                resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
-                // Determine status
-                if (resultAux === "" && (fasttrack || (!characterRevisionFlag && !timecodeOutRevisionFlag))) {
-                    statusAux = "(99) Completed: DWOFiles";
-                } else {
-                    statusAux = characterRevisionFlag && timecodeOutRevisionFlag
-                        ? "(04) Check pending / New characters & Timecode out: DWOFiles"
-                        : characterRevisionFlag
-                            ? "(02) Check pending / New characters: DWOFiles"
-                            : timecodeOutRevisionFlag
-                                ? "(03) Check pending / Timecode out: DWOFiles"
-                                : "(09) Failed: DWOFiles";
-                }
-                conditionalLog(`TRAZABILIDAD - ScriptBreakdown completado, characterRevisionFlag: ${characterRevisionFlag}, timecodeOutRevisionFlag: ${timecodeOutRevisionFlag}, statusAux: ${statusAux}`);
-            } else {
-                resultAux = "File not found: " + fileName;
-                conditionalLog(resultAux);
-                statusAux = "(09) Failed: DWOFiles";
-            }
-
-        } else if (auxStatus === "(05) Complete Upload: DWOFiles") {
-            conditionalLog(`TRAZABILIDAD - Entrando en flujo "(05) Complete Upload", fasttrack será establecido a true`);
-            ReloadDialogLine(file_ID);
-            fasttrack = true;
-            conditionalLog(`TRAZABILIDAD - Iniciando ScriptBreakdown para Complete Upload con fasttrack: ${fasttrack}`);
-            resultAux = ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID);
-            statusAux = "(99) Completed: DWOFiles";
-            conditionalLog(`TRAZABILIDAD - ScriptBreakdown completado para Complete Upload, fasttrack: ${fasttrack}, characterRevisionFlag: ${characterRevisionFlag}, timecodeOutRevisionFlag: ${timecodeOutRevisionFlag}, statusAux forzado a: ${statusAux}`);
-        } else {
-            // Si ya está en algún otro estado, no hacer nada
-            conditionalLog(`TRAZABILIDAD - Saltando procesamiento porque el estado actual es: ${auxStatus}`);
-            return;
-        }
-
-        //Reapertura forzada
-        //dwoCharacterProduction = ssActive.getSheetByName("DWO_CharacterProduction");
-
-        if (statusAux === "(99) Completed: DWOFiles") {
-            conditionalLog(`TRAZABILIDAD - Procesando Characters para estado ${statusAux}, total caracteres: ${characters.length}`);
-            //Graba Characters ***
-            var currentValue; var updatedValue;
-            let rowsToWrite = []; // Array para acumular filas a escribir
-            let characterRowsToWrite = []; // Array para acumular filas de DWO_Character
-            
-            logOperationStatus('InicioProcesamiento', {
-                totalCharacters: characters.length,
-                version: auxVersion,
-                productionID: productionID
-            });
-
-            for (let i = 0; i < characters.length; i++) {
-                const fila = characters[i]; 
-                if (fila[7] === "0") { continue; }
+            if (fila[12] === "Character not present in project: Breakdown_mark") {
+                // Preparar fila para DWO_Character
+                const characterRow = [fila[0], projectID, fila[3], null, null, null, null, null, null, null, fila[8], "(01) Enabled: Generic", fila[10], fila[11], null, null, null, null, null, null, null];
+                characterRowsToWrite.push(characterRow);
                 
-                try {
-                    if (fila[12] === "Character not present in project: Breakdown_mark") {
-                        // Preparar fila para DWO_Character
-                        const characterRow = [fila[0], projectID, fila[3], null, null, null, null, null, null, null, fila[8], "(01) Enabled: Generic", fila[10], fila[11], null, null, null, null, null, null, null];
-                        characterRowsToWrite.push(characterRow);
-                        
-                        logOperationStatus('CharacterPrepared', {
-                            character: fila[3],
-                            characterID: fila[0]
-                        });
+                logOperationStatus('CharacterPrepared', {
+                    character: fila[3],
+                    characterID: fila[0]
+                });
 
-                        control2add.push({
-                            sheet: "DWO_Character",
-                            key: fila[0],
-                            action: "INSERT_ROW",
-                            user: fila[10]
-                        });
+                control2add.push({
+                    sheet: "DWO_Character",
+                    key: fila[0],
+                    action: "INSERT_ROW",
+                    user: fila[10]
+                });
 
-                        // Preparar fila para DWO_CharacterProduction
-                        var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
-                        // Usar formato consistente para el ID - siempre con guión
-                        const productionRow = [productionID + "-" + fila[0], fila[0], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID];
-                        
-                        rowsToWrite.push(productionRow);
-                        
-                        logOperationStatus('ProductionRowPrepared', {
-                            character: fila[3],
-                            productionID: productionID,
-                            rowIndex: rowsToWrite.length
-                        });
+                // Preparar fila para DWO_CharacterProduction (nuevo caso)
+                var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
+                const productionRow = [productionID + "-" + fila[0], fila[0], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID, null, null, null, null];
+                
+                newRows.push(productionRow);
+                
+                logOperationStatus('ProductionRowPrepared', {
+                    character: fila[3],
+                    productionID: productionID,
+                    rowIndex: newRows.length
+                });
 
-                        control2add.push({
-                            sheet: "DWO_CharacterProduction",
-                            key: productionID + "-" + fila[0], // Usar el mismo formato con guión
-                            action: "INSERT_ROW",
-                            user: fila[10]
-                        });
-                    } else {
-                        // Verifica si ya está creado en DWO_CharacterProduction
-                        let aux1 = dwoCharacterProductionNDX.indexOf(fila[2]);
-                        // Verificar que caractherID existe y que pertenece a la producción actual
-                        while (aux1 !== -1 && dwoCharacterProductionData[aux1][2] !== productionID) {
-                            aux1 = dwoCharacterProductionNDX.indexOf(fila[2], aux1 + 1);
-                        }
-                        
-                        if (aux1 === -1) {
-                            //No está creado
-                            var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
-                            const newRow = [productionID + "-" + fila[2], fila[2], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID];
-                            rowsToWrite.push(newRow);
-                            
-                            logOperationStatus('NewCharacterPrepared', {
-                                character: fila[3],
-                                productionID: productionID,
-                                rowIndex: rowsToWrite.length,
-                                characterID: fila[2]
-                            });
+                control2add.push({
+                    sheet: "DWO_CharacterProduction",
+                    key: productionID + "-" + fila[0],
+                    action: "INSERT_ROW",
+                    user: fila[10]
+                });
+            } else {
+                // Verifica si ya está creado en DWO_CharacterProduction
+                let aux1 = findCharacterProductionIndex(fila[2], productionID);
+                //***
+                if (aux1 === -1) {
+                    // No existe, crear nuevo registro
+                    var auxSpecialAttribute = (auxVersion === "Final version: Script_upload_lite") ? "Final loops added: CharacterProduction_Attributes" : "";
+                    const newRow = [productionID + "-" + fila[2], fila[2], productionID, null, null, fila[7], null, null, fila[8], "(01) Recording pending: DWOCharacterProduction", fila[10], fila[11], null, null, null, null, auxSpecialAttribute, null, null, null, null, null, null, projectID, null, null, null, null];
+                    newRows.push(newRow);
+                    
+                    logOperationStatus('NewCharacterPrepared', {
+                        character: fila[3],
+                        productionID: productionID,
+                        rowIndex: newRows.length,
+                        characterID: fila[2]
+                    });
 
-                            control2add.push({
-                                sheet: "DWO_CharacterProduction",
-                                key: productionID + "-" + fila[2],
-                                action: "INSERT_ROW",
-                                user: fila[10]
-                            });
+                    control2add.push({
+                        sheet: "DWO_CharacterProduction",
+                        key: productionID + "-" + fila[2],
+                        action: "INSERT_ROW",
+                        user: fila[10]
+                    });
+                    
+                    // Registrar la nueva combinación
+                    registerCharacterProduction(fila[2], productionID);
+                } else {
+                    // Ya existe, actualizar registro existente
+                    var charProd = dwoCharacterProductionData[aux1];
+                    //Versión FINAL 
+                    if (auxVersion === "Final version: Script_upload_lite") {
+                        //No se grabó la primera vez
+                        if(dwoCharacterProductionData[aux1][7]===""){
+                            // Sobre escribe loops
+                            charProd[5] = fila[7]; // Graba en Planned loops
+                            charProd[22] = ""; // Limpia loops Finales
+                            charProd[3] = ""; // Limpia additional
+                            charProd[6] = ""; // Limpia extra citation
+                            charProd[20] = ""; // Limpia additional loops
+                            charProd[21] = ""; // Limpia additional loops
                         } else {
-                            //Está creado en proyecto ***
-                            var charProd = dwoCharacterProductionData[aux1];
-                            //Versión FINAL 
-                            if (auxVersion === "Final version: Script_upload_lite") {
-                                //No se grabó la primera vez
-                                if(dwoCharacterProductionData[aux1][7]===""){
-                                    // Sobre escribe loops
-                                    charProd[5] = fila[7]; // Graba en Planned loops
-                                    charProd[22] = ""; // Limpia loops Finales
-                                    charProd[3] = ""; // Limpia additional
-                                    charProd[6] = ""; // Limpia extra citation
-                                    charProd[20] = ""; // Limpia additional loops
-                                    charProd[21] = ""; // Limpia additional loops
-                                } else {
-                                    //
-                                    if (!charProd[16].includes("Final loops added: CharacterProduction_Attributes")) {
-                                        if(charProd[6] === 1) {
-                                            // Hay retoma creada
-                                            if(charProd[17] === "") {
-                                                //No se grabó todavía : sobre escribe
-                                                charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
-                                                charProd[22] = fila[7]; // sobreescribe loops Finales
-                                                charProd[3] = fila[7]; // sobreescribe additional loops
-                                                charProd[20] = ""; // Limpia additional loops 2
-                                                charProd[21] = ""; // Limpia additional loops 3
-                                            } else {
-                                                //Ya se grabó / Error
-                                                charProd[8] = charProd[8] + "// Error: Retake already completed";
-                                            }
-                                        } else if(charProd[6] > 1) {
-                                            // Hay más de una retoma creada / Error
-                                            charProd[8] = charProd[8] + "// Error: More than one retake created";
-                                        } else {
-                                            // No hay retoma creada
-                                            charProd[22] = fila[7]; // escribe loops Finales
-                                            charProd[3] = fila[7]; // escribe additional loops
-                                            charProd[6] = 1; // Crea extra citation
-                                            charProd[20] = ""; // Limpia additional loops 2
-                                            charProd[21] = ""; // Limpia additional loops 3
-                                        }
+                            //
+                            if (!charProd[16].includes("Final loops added: CharacterProduction_Attributes")) {
+                                if(charProd[6] === 1) {
+                                    // Hay retoma creada
+                                    if(charProd[17] === "") {
+                                        //No se grabó todavía : sobre escribe
+                                        charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
+                                        charProd[22] = fila[7]; // sobreescribe loops Finales
+                                        charProd[3] = fila[7]; // sobreescribe additional loops
+                                        charProd[20] = ""; // Limpia additional loops 2
+                                        charProd[21] = ""; // Limpia additional loops 3
                                     } else {
-                                    //Es reprocesamiento
-                                        // Variaron los loops
-                                        if(charProd[5] !== fila[7]) {
-                                            //No se grabó todavía
-                                            if(charProd[17] === "") {
-                                                //Sobre escribe loops
-                                                charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
-                                                charProd[3] = fila[7]; // sobreescribe loops Finales
-                                                charProd[22] = fila[7]; // sobreescribe loops Finales
-                                                charProd[20] = ""; // Limpia additional loops 2
-                                                charProd[21] = ""; // Limpia additional loops 3
-                                            } else {
-                                                //Ya se grabó
-                                                charProd[8] = charProd[8] + "// Error: Retake already completed";
-                                            }
-                                        } else {
-                                            continue;
-                                        }
+                                        //Ya se grabó / Error
+                                        charProd[8] = charProd[8] + "// Error: Retake already completed";
                                     }
+                                } else if(charProd[6] > 1) {
+                                    // Hay más de una retoma creada / Error
+                                    charProd[8] = charProd[8] + "// Error: More than one retake created";
+                                } else {
+                                    // No hay retoma creada
+                                    charProd[22] = fila[7]; // escribe loops Finales
+                                    charProd[3] = fila[7]; // escribe additional loops
+                                    charProd[6] = 1; // Crea extra citation
+                                    charProd[20] = ""; // Limpia additional loops 2
+                                    charProd[21] = ""; // Limpia additional loops 3
                                 }
-                                // Preparar todos los valores a actualizar
-                                let currentValue = charProd[16];
-                                let attributesToAdd = [
-                                    "Check pending: CharacterProduction_Attributes",
-                                    "Final loops added: CharacterProduction_Attributes"
-                                ];
-                                
-                                // Construir el string de atributos
-                                let attributes = currentValue || "";
-                                attributesToAdd.forEach(attr => {
-                                    if (!attributes.includes(attr)) {
-                                        attributes = attributes ? `${attributes} , ${attr}` : attr;
-                                    }
-                                });
-
-                                // Actualizar status si es necesario
-                                if (charProd[9] === "(04) Dismissed: DWOCharacterProduction") {
-                                    charProd[9] = "(01) Recording pending: DWOCharacterProduction";
-                                    charProd[8] = charProd[8] + "// Dissmissed case reopened";
-                                    const checkPendingAttr = "Check pending: CharacterProduction_Attributes";
-                                    
-                                    if (!attributes.includes(checkPendingAttr)) {
-                                        attributes = attributes ? `${attributes} , ${checkPendingAttr}` : checkPendingAttr;
-                                    }
-                                }
-                                charProd[16]=attributes;
                             } else {
-                                //Versión preliminar reprocesada
+                            //Es reprocesamiento
                                 // Variaron los loops
                                 if(charProd[5] !== fila[7]) {
-                                    //Todavía no se grabó
-                                    if(charProd[7] === "") {
+                                    //No se grabó todavía
+                                    if(charProd[17] === "") {
                                         //Sobre escribe loops
-                                        charProd[5] = fila[7]; // Graba en Planned loops
-                                        charProd[22] = ""; // Limpia loops Finales
-                                        charProd[3] = ""; // Limpia additional
-                                        charProd[6] = ""; // Limpia extra citation
-                                        charProd[20] = ""; // Limpia additional loops
-                                        charProd[21] = ""; // Limpia additional loops
+                                        charProd[8] = charProd[8] + "// Final loops (previous: "+ charProd[3] +") overwritted";
+                                        charProd[3] = fila[7]; // sobreescribe loops Finales
+                                        charProd[22] = fila[7]; // sobreescribe loops Finales
+                                        charProd[20] = ""; // Limpia additional loops 2
+                                        charProd[21] = ""; // Limpia additional loops 3
                                     } else {
                                         //Ya se grabó
-                                        charProd[8] = charProd[8] + "// Error: Loops changed ("+fila[7]+ ") and recording already completed";
-                                        charProd[16]="Check pending: CharacterProduction_Attributes , "+charProd[16];
+                                        charProd[8] = charProd[8] + "// Error: Retake already completed";
                                     }
                                 } else {
                                     continue;
                                 }
                             }
+                        }
+                        // Preparar todos los valores a actualizar
+                        let currentValue = charProd[16];
+                        let attributesToAdd = [
+                            "Check pending: CharacterProduction_Attributes",
+                            "Final loops added: CharacterProduction_Attributes"
+                        ];
                         
-                            // Agregar a rowsToWrite en lugar de escribir directamente
-                            rowsToWrite.push(charProd);
+                        // Construir el string de atributos
+                        let attributes = currentValue || "";
+                        attributesToAdd.forEach(attr => {
+                            if (!attributes.includes(attr)) {
+                                attributes = attributes ? `${attributes} , ${attr}` : attr;
+                            }
+                        });
+
+                        // Actualizar status si es necesario
+                        if (charProd[9] === "(04) Dismissed: DWOCharacterProduction") {
+                            charProd[9] = "(01) Recording pending: DWOCharacterProduction";
+                            charProd[8] = charProd[8] + "// Dissmissed case reopened";
+                            const checkPendingAttr = "Check pending: CharacterProduction_Attributes";
+                            
+                            if (!attributes.includes(checkPendingAttr)) {
+                                attributes = attributes ? `${attributes} , ${checkPendingAttr}` : checkPendingAttr;
+                            }
+                        }
+                        charProd[16]=attributes;
+                    } else {
+                        //Versión preliminar reprocesada
+                        // Variaron los loops
+                        if(charProd[5] !== fila[7]) {
+                            //Todavía no se grabó
+                            if(charProd[7] === "") {
+                                //Sobre escribe loops
+                                charProd[5] = fila[7]; // Graba en Planned loops
+                                charProd[22] = ""; // Limpia loops Finales
+                                charProd[3] = ""; // Limpia additional
+                                charProd[6] = ""; // Limpia extra citation
+                                charProd[20] = ""; // Limpia additional loops
+                                charProd[21] = ""; // Limpia additional loops
+                            } else {
+                                //Ya se grabó
+                                charProd[8] = charProd[8] + "// Error: Loops changed ("+fila[7]+ ") and recording already completed";
+                                charProd[16]="Check pending: CharacterProduction_Attributes , "+charProd[16];
+                            }
+                        } else {
+                            continue;
                         }
                     }
-                } catch (error) {
-                    logOperationStatus('ErrorProcesamiento', {
-                        character: fila[3],
-                        error: error.toString(),
-                        stack: error.stack
+                   
+                    // Agregar a updatedRows en lugar de rowsToWrite
+                    updatedRows.push({
+                        rowIndex: aux1 + 2, // +2 por el encabezado y el índice base 0
+                        data: charProd
                     });
-                    throw error;
                 }
             }
-            
-            // Escribir todas las filas acumuladas en DWO_Character
-            if (characterRowsToWrite.length > 0) {
-                let retryCount = 0;
-                const maxRetries = 3;
-                let writeSuccess = false;
-                
-                while (!writeSuccess && retryCount < maxRetries) {
-                    try {
-                        const startRow = dwoCharacter.getLastRow() + 1;
-                        dwoCharacter.getRange(startRow, 1, characterRowsToWrite.length, characterRowsToWrite[0].length)
-                            .setValues(characterRowsToWrite);
-                        writeSuccess = true;
-                        
-                        logOperationStatus('EscrituraCharacterExitosa', {
-                            filaInicio: startRow,
-                            totalFilas: characterRowsToWrite.length,
-                            intento: retryCount + 1
-                        });
-                    } catch (error) {
-                        retryCount++;
-                        logOperationStatus('ErrorEscrituraCharacter', {
-                            intento: retryCount,
-                            error: error.toString()
-                        });
-                        
-                        if (retryCount === maxRetries) {
-                            throw new Error(`Fallo en escritura de DWO_Character después de ${maxRetries} intentos: ${error}`);
-                        }
-                        Utilities.sleep(1000 * retryCount);
-                    }
-                }
-            }
-            
-            // Escribir todas las filas acumuladas en DWO_CharacterProduction
-            if (rowsToWrite.length > 0) {
-                let retryCount = 0;
-                const maxRetries = 3;
-                let writeSuccess = false;
-                
-                while (!writeSuccess && retryCount < maxRetries) {
-                    try {
-                        const startRow = dwoCharacterProduction.getLastRow() + 1;
-                        dwoCharacterProduction.getRange(startRow, 1, rowsToWrite.length, rowsToWrite[0].length)
-                            .setValues(rowsToWrite);
-                        writeSuccess = true;
-                        
-                        logOperationStatus('EscrituraProductionExitosa', {
-                            filaInicio: startRow,
-                            totalFilas: rowsToWrite.length,
-                            intento: retryCount + 1
-                        });
-                    } catch (error) {
-                        retryCount++;
-                        logOperationStatus('ErrorEscrituraProduction', {
-                            intento: retryCount,
-                            error: error.toString()
-                        });
-                        
-                        if (retryCount === maxRetries) {
-                            throw new Error(`Fallo en escritura de DWO_CharacterProduction después de ${maxRetries} intentos: ${error}`);
-                        }
-                        Utilities.sleep(1000 * retryCount);
-                    }
-                }
-            }
-
-            // Configurar el trigger asíncrono para PDFWitness
-            console.log('TRAZABILIDAD - Intentando programar PDFWitness para:', pdfname, file_ID);
-            const scheduled = schedulePDFWitness(pdfname, file_ID);
-            
-            if (!scheduled) {
-                console.error('TRAZABILIDAD - Falló la programación de PDFWitness');
-                statusAux = "(09) Failed: DWOFiles";
-            } else {
-                console.log('TRAZABILIDAD - PDFWitness programado exitosamente');
-            }
+        } catch (error) {
+            logOperationStatus('ErrorProcesamiento', {
+                character: fila[3],
+                error: error.toString(),
+                stack: error.stack
+            });
+            throw error;
         }
-
-        //Save output
-        //Status y Message en una sola operación
-        // Obtener los valores actuales de las columnas O y P desde auxCaseDWO_Files
-        // Las columnas O y P corresponden a los índices 14 y 15 en el array (0-based)
-        var columnO = auxCaseDWO_Files[0][14]; // Columna O
-        var columnP = auxCaseDWO_Files[0][15]; // Columna P
-
-        conditionalLog(`TRAZABILIDAD - Actualizando estado final a: ${statusAux}, mensaje: ${resultAux}`);
-
-        var updateRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 10, 1, 8);
-        var updateValues = [[
-            resultAux, // columna 10 (J)
-            "", // columna 11 (K)
-            statusAux, // columna 12 (L)
-            userID, // columna 13 (M)
-            isNow, // columna 14 (N)
-            columnO, columnP, // columnas 15-16 (O-P) - Preservar valores existentes
-            channelID + " / " + projectID + " / " + productionID + " / " + userID + " / " + file_ID + " / " + pdfname// columna 17 (Q)
-        ]];
-        updateRange.setValues(updateValues);
-
-        // Procesar los cambios acumulados
-        processControlChanges();
-
-        // En lugar de retornar statusAux, grabarlo en DWO-Event
-        // Buscar en DWO-Event la fila donde columna A tiene el valor de eventID
-        OpenSheet("DWO-Event", 0, "", 0, ssActive);
-        var dwoEventSheet = auxSheet;
-        var dwoEventData = auxValues;
-        var filaEncontrada = -1;
-
-        // Buscar la fila con el eventID en la columna A
-        for (var i = 0; i < dwoEventData.length; i++) {
-            if (dwoEventData[i][0] === eventID) {
-                // i+2 porque: +1 por el índice base 0 y +1 por la fila de encabezado en la hoja
-                filaEncontrada = i + 2;
-                break;
-            }
-        }
-
-        if (filaEncontrada > 0) {
-            // Columna BC es la número 55 (considerando que A es 1, BC sería 55)
-            dwoEventSheet.getRange(filaEncontrada, 55).setValue(statusAux);
-            conditionalLog(`TRAZABILIDAD - Estado actualizado en DWO-Event para eventID: ${eventID} con valor: ${statusAux} en fila ${filaEncontrada}`);
-        } else {
-            console.error(`TRAZABILIDAD - No se encontró el eventID ${eventID} en DWO-Event`);
-        }
-        
-        conditionalLog('TRAZABILIDAD - Proceso de ScriptUpload completado exitosamente');
-        
-    } catch (error) {
-        console.error('TRAZABILIDAD - Error en processScriptUpload:', error);
-        
-        // Intentar actualizar el estado en caso de error, para evitar que quede en "En procesamiento"
-        try {
-            if (auxSheetDWO_Files && auxRowDWO_Files) {
-                var updateRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 12, 1, 1);
-                updateRange.setValue("(09) Failed: DWOFiles - Error: " + error.message.substring(0, 100));
-                
-                // También actualizar la columna de mensajes
-                var msgRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 10, 1, 1);
-                msgRange.setValue("Error: " + error.message.substring(0, 255));
-                
-                conditionalLog(`TRAZABILIDAD - Actualizado estado a error: (09) Failed: DWOFiles - Error: ${error.message.substring(0, 100)}`);
-                // NO actualizar DWO-Event en caso de error, como en la versión original
-            }
-        } catch (err2) {
-            console.error('TRAZABILIDAD - Error al actualizar estado de error:', err2);
-        }
-        
-        sendErrorNotification(error, 'processScriptUpload', params);
     }
+    
+    // Escribir todas las filas acumuladas en DWO_Character (sin cambios)
+    if (characterRowsToWrite.length > 0) {
+        let retryCount = 0;
+        const maxRetries = 3;
+        let writeSuccess = false;
+        
+        while (!writeSuccess && retryCount < maxRetries) {
+            try {
+                const startRow = dwoCharacter.getLastRow() + 1;
+                dwoCharacter.getRange(startRow, 1, characterRowsToWrite.length, characterRowsToWrite[0].length)
+                    .setValues(characterRowsToWrite);
+                writeSuccess = true;
+                
+                logOperationStatus('EscrituraCharacterExitosa', {
+                    filaInicio: startRow,
+                    totalFilas: characterRowsToWrite.length,
+                    intento: retryCount + 1
+                });
+            } catch (error) {
+                retryCount++;
+                logOperationStatus('ErrorEscrituraCharacter', {
+                    intento: retryCount,
+                    error: error.toString()
+                });
+                
+                if (retryCount === maxRetries) {
+                    throw new Error(`Fallo en escritura de DWO_Character después de ${maxRetries} intentos: ${error}`);
+                }
+                Utilities.sleep(1000 * retryCount);
+            }
+        }
+    }
+    
+    // Escribir los registros nuevos y actualizados en DWO_CharacterProduction
+    let retryCount = 0;
+    const maxRetries = 3;
+    let writeSuccess = false;
+    //***
+    while (!writeSuccess && retryCount < maxRetries) {
+        try {
+            // Escribir nuevos registros
+            if (newRows.length > 0) {
+                const startRow = dwoCharacterProduction.getLastRow() + 1;
+                dwoCharacterProduction.getRange(startRow, 1, newRows.length, newRows[0].length)
+                    .setValues(newRows);
+                
+                logOperationStatus('EscrituraNuevosRegistrosExitosa', {
+                    filaInicio: startRow,
+                    totalFilas: newRows.length,
+                    intento: retryCount + 1
+                });
+            }
+
+            // Actualizar registros existentes
+            if (updatedRows.length > 0) {
+                updatedRows.forEach(update => {
+                    dwoCharacterProduction.getRange(update.rowIndex, 1, 1, update.data.length)
+                        .setValues([update.data]);
+                });
+                
+                logOperationStatus('ActualizacionRegistrosExitosa', {
+                    totalActualizaciones: updatedRows.length,
+                    intento: retryCount + 1
+                });
+            }
+
+            writeSuccess = true;
+            
+        } catch (error) {
+            retryCount++;
+            logOperationStatus('ErrorEscritura', {
+                intento: retryCount,
+                error: error.toString()
+            });
+            
+            if (retryCount === maxRetries) {
+                throw new Error(`Fallo en escritura después de ${maxRetries} intentos: ${error}`);
+            }
+            Utilities.sleep(1000 * retryCount);
+        }
+    }
+
+    // Configurar el trigger asíncrono para PDFWitness
+	if(verboseFlag){
+    	console.log('Intentando programar PDFWitness para:', pdfname, file_ID);
+	}
+    const scheduled = schedulePDFWitness(pdfname, file_ID);
+    
+    if (!scheduled) {
+        console.error('Falló la programación de PDFWitness');
+        statusAux = "(09) Failed: DWOFiles";
+    } else {
+		if(verboseFlag){
+	        console.log('PDFWitness programado exitosamente');
+		}
+    }
+}
+
+//Save output
+//Status y Message en una sola operación
+// Obtener los valores actuales de las columnas O y P desde auxCaseDWO_Files
+// Las columnas O y P corresponden a los índices 14 y 15 en el array (0-based)
+var columnO = auxCaseDWO_Files[0][14]; // Columna O
+var columnP = auxCaseDWO_Files[0][15]; // Columna P
+
+var updateRange = auxSheetDWO_Files.getRange(auxRowDWO_Files + 1, 10, 1, 8);
+var updateValues = [[
+    resultAux, // columna 10 (J)
+    "", // columna 11 (K)
+    statusAux, // columna 12 (L)
+    userID, // columna 13 (M)
+    isNow, // columna 14 (N)
+    columnO, columnP, // columnas 15-16 (O-P) - Preservar valores existentes
+    channelID + " / " + projectID + " / " + productionID + " / " + userID + " / " + file_ID + " / " + pdfname// columna 17 (Q)
+]];
+updateRange.setValues(updateValues);
+
+// Procesar los cambios acumulados
+processControlChanges();
+
+// En lugar de retornar statusAux, grabarlo en DWO-Event
+// Buscar en DWO-Event la fila donde columna A tiene el valor de eventID
+OpenSheet("DWO-Event", 0, "", 0, ssActive);
+var dwoEventSheet = auxSheet;
+var dwoEventData = auxValues;
+var filaEncontrada = -1;
+
+// Buscar la fila con el eventID en la columna A
+for (var i = 0; i < dwoEventData.length; i++) {
+    if (dwoEventData[i][0] === eventID) {
+        // i+2 porque: +1 por el índice base 0 y +1 por la fila de encabezado en la hoja
+        filaEncontrada = i + 2;
+        break;
+    }
+}
+
+if (filaEncontrada > 0) {
+    // Columna BC es la número 55 (considerando que A es 1, BC sería 55)
+    dwoEventSheet.getRange(filaEncontrada, 55).setValue(statusAux);
+	if(verboseFlag){
+	    console.log("Estado actualizado en DWO-Event para eventID: " + eventID + " con valor: " + statusAux + " en fila " + filaEncontrada);
+	}
+} else {
+    console.error("No se encontró el eventID " + eventID + " en DWO-Event");
+}
+
+return statusAux;
 }
 
 function ScriptBreakdown(channelID, projectID, productionID, userID, fileID, file_ID, pdfname) {
@@ -1434,230 +1324,225 @@ return auxLoop;
 
 
 function PDFWitness(pdfname, file_ID) {
+    try {
+        console.log("LoopPDFWitness " + pdfname + " / " + file_ID);
 
-try {
-	console.log("LoopPDFWitness " + pdfname + " / " + file_ID);
+        pdfname = pdfname.replace(/[\/\\:*?"<>|()\[\]]/g, ' ');
 
-	pdfname = pdfname.replace(/[\/\\:*?"<>|()\[\]]/g, ' ');
+        // Open sheet
+        ssActive = SpreadsheetApp.openById(sheetID);
+        auxLabel = pdfname;
 
-	// Open sheet
-	ssActive = SpreadsheetApp.openById(sheetID);
-	auxLabel = pdfname;
+        //Load project character
+        OpenSheet("DWO_FilesCharacter", 2, file_ID, 0, ssActive);
+        let characterAux = [["Character", "Loops related", "Loops count"]];
+        for (let i = 0; i < auxFilteredValues.length; i++) {
+            let newRow = [];
+            newRow.push(auxFilteredValues[i][3].toString()); // Columna 3
+            newRow.push(auxFilteredValues[i][6].toString()); // Columna 6
+            newRow.push(auxFilteredValues[i][7].toString()); // Columna 9
+            // Agregar la nueva fila a la nueva matriz
+            characterAux.push(newRow);
+        }
 
-	//Load project character
-	OpenSheet("DWO_FilesCharacter", 2, file_ID, 0, ssActive);
-	let characterAux = [["Character", "Loops related", "Loops count"]];
-	for (let i = 0; i < auxFilteredValues.length; i++) {
-		let newRow = [];
-		newRow.push(auxFilteredValues[i][3].toString()); // Columna 3
-		newRow.push(auxFilteredValues[i][6].toString()); // Columna 6
-		newRow.push(auxFilteredValues[i][7].toString()); // Columna 9
-		// Agregar la nueva fila a la nueva matriz
-		characterAux.push(newRow);
-	}
+        //Load script
+        OpenSheet("DWO_FilesLines", 2, file_ID, 0, ssActive);
+        let scriptAux = [["Timecode In", "Timecode Out", "Character", "Dialogue", "Loop related"]];
+        for (let i = 0; i < auxFilteredValues.length; i++) {
+            let newRow = [];
+            newRow.push(Time2String(auxFilteredValues[i][3])); // Columna 4
+            newRow.push(Time2String(auxFilteredValues[i][4])); // Columna 5
+            newRow.push(auxFilteredValues[i][2].toString()); // Columna 3
+            if(auxFilteredValues[i][5] === null){
+                newRow.push(auxFilteredValues[i][5].toString()); // Columna 6 without signs
+            } else {
+                newRow.push(auxFilteredValues[i][15].toString()); // Columna 16 Original
+            }
+            newRow.push(auxFilteredValues[i][8].toString()); // Columna 9
+            // Agregar la nueva fila a la nueva matriz
+            scriptAux.push(newRow);
+        }
 
-	//Load script
-	OpenSheet("DWO_FilesLines", 2, file_ID, 0, ssActive);
-	let scriptAux = [["Timecode In", "Timecode Out", "Character", "Dialogue", "Loop related"]];
-	for (let i = 0; i < auxFilteredValues.length; i++) {
-		let newRow = [];
-		newRow.push(Time2String(auxFilteredValues[i][3])); // Columna 4
-		newRow.push(Time2String(auxFilteredValues[i][4])); // Columna 5
-		newRow.push(auxFilteredValues[i][2].toString()); // Columna 3
-		if(auxFilteredValues[i][5] === null){
-			newRow.push(auxFilteredValues[i][5].toString()); // Columna 6 without signs
-		} else {
-			newRow.push(auxFilteredValues[i][15].toString()); // Columna 16 Original
-		}
-		newRow.push(auxFilteredValues[i][8].toString()); // Columna 9
-		// Agregar la nueva fila a la nueva matriz
-		scriptAux.push(newRow);
-	}
+        // Crear la tabla HTML
+        let html = '<html><head><style>' +
+            'body { font-family: "Arial Narrow", Arial, sans-serif; font-size: 10pt; margin: 20px; }' +
+            'table { border: 1px solid black; border-collapse: collapse; width: 100%; table-layout: fixed; }' +
+            'th, td { border: 1px solid black; padding: 4px 6px; vertical-align: top; font-size: 10pt; }' +
+            'td:last-child { word-wrap: break-word; white-space: normal; }' +
+            'td:not(:last-child) { white-space: nowrap; }' +
+            '.dialogue-cell { word-wrap: break-word; white-space: pre-wrap; overflow-wrap: break-word; }' +
+            '.header-cell { font-weight: bold; background-color: #f8f8f8; word-break: break-word; white-space: normal; }' +
+            '.inhibited-row td { color: #999999; font-style: italic; word-break: break-word; white-space: pre-wrap; }' +
+            '.added-row td { color: #FF0000; font-weight: bold; word-break: break-word; white-space: pre-wrap; }' +
+            'h1 { font-family: "Arial Narrow", Arial, sans-serif; font-size: 14pt; margin: 15px 0; }' +
+            'h2 { font-family: "Arial Narrow", Arial, sans-serif; font-size: 12pt; margin: 15px 0; }' +
+            '.page-break { page-break-before: always; }' +
+            '@page { margin: 0.5in; }' +
+            '</style></head><body>' +
+            `<h1>${pdfname}</h1>` +
+            '<h2>Loops count</h2>' +
+            '<table border="1">';
+        characterAux.forEach((row, rowIndex) => {
+            html += '<tr>';
+            row.forEach((cell, index) => {
+                if (rowIndex === 0) { // Encabezados
+                    if (index === 0) { // Character
+                        html += `<td style="width: 25%" class="header-cell">${cell}</td>`;
+                    } else if (index === 1) { // Loops related
+                        html += `<td style="width: 60%" class="header-cell">${cell}</td>`;
+                    } else { // Count
+                        html += `<td style="width: 15%" class="header-cell">${cell}</td>`;
+                    }
+                } else {
+                    if (index === 0) { // Character
+                        html += `<td style="width: 25%">${cell}</td>`;
+                    } else if (index === 1) { // Loops related
+                        let processedCell = '';
+                        if (cell) {
+                            processedCell = cell.toString()
+                                .replace(/&/g, '&amp;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;')
+                                .replace(/"/g, '&quot;')
+                                .replace(/'/g, '&#039;')
+                                .replace(/\s*,\s*/g, ', '); // Normalizar espacios alrededor de comas
+                        }
+                        html += `<td style="width: 60%; word-break: break-word; white-space: pre-wrap;" class="loops-cell">${processedCell}</td>`;
+                    } else { // Count
+                        html += `<td style="width: 15%; text-align: center;">${cell}</td>`;
+                    }
+                }
+            });
+            html += '</tr>';
+        });
+        html += '</table>';
 
-	// Crear la tabla HTML
-	let html = '<html><head><style>' +
-		'body { font-family: "Arial Narrow", Arial, sans-serif; font-size: 10pt; margin: 20px; }' +
-		'table { border: 1px solid black; border-collapse: collapse; width: 100%; table-layout: fixed; }' +
-		'th, td { border: 1px solid black; padding: 4px 6px; vertical-align: top; font-size: 10pt; }' +
-		'td:last-child { word-wrap: break-word; white-space: normal; }' +
-		'td:not(:last-child) { white-space: nowrap; }' +
-		'.dialogue-cell { word-wrap: break-word; white-space: pre-wrap; overflow-wrap: break-word; }' +
-		'.header-cell { font-weight: bold; background-color: #f8f8f8; word-break: break-word; white-space: normal; }' +
-		'.inhibited-row td { color: #999999; font-style: italic; word-break: break-word; white-space: pre-wrap; }' +
-		'.added-row td { color: #FF0000; font-weight: bold; word-break: break-word; white-space: pre-wrap; }' +
-		'h1 { font-family: "Arial Narrow", Arial, sans-serif; font-size: 14pt; margin: 15px 0; }' +
-		'h2 { font-family: "Arial Narrow", Arial, sans-serif; font-size: 12pt; margin: 15px 0; }' +
-		'.page-break { page-break-before: always; }' +
-		'@page { margin: 0.5in; }' +
-		'</style></head><body>' +
-		`<h1>${pdfname}</h1>` +
-		'<h2>Loops count</h2>' +
-		'<table border="1">';
-	characterAux.forEach((row, rowIndex) => {
-		html += '<tr>';
-		row.forEach((cell, index) => {
-			if (rowIndex === 0) { // Encabezados
-				if (index === 0) { // Character
-					html += `<td style="width: 25%" class="header-cell">${cell}</td>`;
-				} else if (index === 1) { // Loops related
-					html += `<td style="width: 60%" class="header-cell">${cell}</td>`;
-				} else { // Count
-					html += `<td style="width: 15%" class="header-cell">${cell}</td>`;
-				}
-			} else {
-				if (index === 0) { // Character
-					html += `<td style="width: 25%">${cell}</td>`;
-				} else if (index === 1) { // Loops related
-					let processedCell = '';
-					if (cell) {
-						processedCell = cell.toString()
-							.replace(/&/g, '&amp;')
-							.replace(/</g, '&lt;')
-							.replace(/>/g, '&gt;')
-							.replace(/"/g, '&quot;')
-							.replace(/'/g, '&#039;')
-							.replace(/\s*,\s*/g, ', '); // Normalizar espacios alrededor de comas
-					}
-					html += `<td style="width: 60%; word-break: break-word; white-space: pre-wrap;" class="loops-cell">${processedCell}</td>`;
-				} else { // Count
-					html += `<td style="width: 15%; text-align: center;">${cell}</td>`;
-				}
-			}
-		});
-		html += '</tr>';
-	});
-	html += '</table>';
+        // Agregar salto de página y tabla Script breakdown
+        html += '<div class="page-break">' +
+            '<h2>Script breakdown</h2>' +
+            '<table border="1">' +
+            '<tr>';
 
-	// Agregar salto de página y tabla Script breakdown
-	html += '<div class="page-break">' +
-		'<h2>Script breakdown</h2>' +
-		'<table border="1">' +
-		'<tr>';
+        // Encabezados con ancho fijo y estilo específico
+        const headers = ['IN-TIMECODE', 'OUT-TIMECODE', 'CHARACTER', 'DIALOGUE', 'LOOP'];
+        headers.forEach((header, index) => {
+            let width, style;
+            if (index === 0 || index === 1) {
+                width = '12%';
+            } else if (index === 2) {
+                width = '18%';
+            } else if (index === 3) {
+                width = '45%';
+            } else {
+                width = '13%';
+            }
+            style = `width: ${width}; font-weight: bold; background-color: #f8f8f8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`;
+            html += `<td style="${style}">${header}</td>`;
+        });
+        html += '</tr>';
 
-	// Encabezados con ancho fijo y estilo específico
-	const headers = ['IN-TIMECODE', 'OUT-TIMECODE', 'CHARACTER', 'DIALOGUE', 'LOOP'];
-	headers.forEach((header, index) => {
-		let width, style;
-		if (index === 0 || index === 1) {
-			width = '12%';
-		} else if (index === 2) {
-			width = '18%';
-		} else if (index === 3) {
-			width = '45%';
-		} else {
-			width = '13%';
-		}
-		style = `width: ${width}; font-weight: bold; background-color: #f8f8f8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;`;
-		html += `<td style="${style}">${header}</td>`;
-	});
-	html += '</tr>';
+        // Contenido de la tabla (sin generar nuevos encabezados)
+        scriptAux.slice(1).forEach(row => {  // Usar slice(1) para omitir la fila de encabezados
+            const isInhibited = inhibited.includes(row[2]);
+            const isAdded = row[3] && row[3].includes("[+]");
+            
+            html += `<tr${isInhibited ? ' class="inhibited-row"' : (isAdded ? ' class="added-row"' : '')}>`;
+            row.forEach((cell, index) => {
+                let cellStyle = '';
+                if (index === 0 || index === 1) { // Timecode columns
+                    cellStyle = 'width: 12%; white-space: nowrap;';
+                } else if (index === 2) { // Character column
+                    cellStyle = 'width: 18%; word-break: break-word; white-space: pre-wrap; overflow-wrap: break-word;';
+                } else if (index === 3) { // Dialogue column
+                    cellStyle = 'width: 45%; word-break: break-word; white-space: pre-wrap; overflow-wrap: break-word;';
+                } else { // Loop column
+                    cellStyle = 'width: 13%; white-space: nowrap;';
+                }
+                
+                let processedCell = '';
+                if (cell) {
+                    processedCell = cell.toString()
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;')
+                        .replace(/\n/g, '<br>');
+                }
+                
+                html += `<td style="${cellStyle}">${processedCell}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</table></div>';
 
-	// Contenido de la tabla (sin generar nuevos encabezados)
-	scriptAux.slice(1).forEach(row => {  // Usar slice(1) para omitir la fila de encabezados
-		const isInhibited = inhibited.includes(row[2]);
-		const isAdded = row[3] && row[3].includes("[+]");
-		
-		html += `<tr${isInhibited ? ' class="inhibited-row"' : (isAdded ? ' class="added-row"' : '')}>`;
-		row.forEach((cell, index) => {
-			let cellStyle = '';
-			if (index === 0 || index === 1) { // Timecode columns
-				cellStyle = 'width: 12%; white-space: nowrap;';
-			} else if (index === 2) { // Character column
-				cellStyle = 'width: 18%; word-break: break-word; white-space: pre-wrap; overflow-wrap: break-word;';
-			} else if (index === 3) { // Dialogue column
-				cellStyle = 'width: 45%; word-break: break-word; white-space: pre-wrap; overflow-wrap: break-word;';
-			} else { // Loop column
-				cellStyle = 'width: 13%; white-space: nowrap;';
-			}
-			
-			let processedCell = '';
-			if (cell) {
-				processedCell = cell.toString()
-					.replace(/&/g, '&amp;')
-					.replace(/</g, '&lt;')
-					.replace(/>/g, '&gt;')
-					.replace(/"/g, '&quot;')
-					.replace(/'/g, '&#039;')
-					.replace(/\n/g, '<br>');
-			}
-			
-			html += `<td style="${cellStyle}">${processedCell}</td>`;
-		});
-		html += '</tr>';
-	});
-	html += '</table></div>';
+        // Convertir el HTML a PDF
+        const blob = Utilities.newBlob(html, 'text/html', 'table.html');
+        const pdf = blob.getAs('application/pdf').setName(pdfname);
 
-	// Convertir el HTML a PDF
-	const blob = Utilities.newBlob(html, 'text/html', 'table.html');
-	const pdf = blob.getAs('application/pdf').setName(pdfname);
+        // Guardar el PDF en la carpeta especificada
+        const folder = DriveApp.getFolderById(folderWitnessId);
+        const file = folder.createFile(pdf);
+        const docID = file.getId();
 
-	// Guardar el PDF en la carpeta especificada
-	const folder = DriveApp.getFolderById(folderWitnessId);
-	const file = folder.createFile(pdf);
-	const docID = file.getId();
-
-	// Buscar información en DWO_Files para enviar el email
-	OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
-	if (auxFilteredValues && auxFilteredValues.length > 0) {
-		const dwoFilesData = auxFilteredValues[0];
-		
-		// Extraer los datos necesarios para el email
-		const destinatario = dwoFilesData[4]; // Columna E
-		
-		// Solo enviar el email si hay un destinatario válido
-		if (destinatario && destinatario.trim() !== "") {
-			const remitente = dwoFilesData[12]; // Columna M
-			const nombreDestinatario = "";
-			const idDocumento = "1A32AoqCjHrfSaW35ZapKtolw9JqMR0jnDhCd3c8FOnY";
-			const idPDF = "";
-			const asunto = "DubApp: Script uploaded for " + pdfname;
-			
-			// Preparar el parámetro de versión - quitar el sufijo ": Script_upload_lite"
-			let versionTexto = dwoFilesData[14] || ""; // Columna O
-			versionTexto = versionTexto.replace(/\s*:\s*Script_upload_lite$/, "");
-			
-			const parametros = "Title::DubApp: Script uploaded by translator" + 
-				"||Header::A new script was uploaded for your attention: " + 
-				"||Detail::" + pdfname + 
-				"||Footer::" + versionTexto;
-			
-			const cc = dwoFilesData[5]; // Columna F
-			const bcc = "appsheet@mediaaccesscompany.com";
-			
-			// Enviar el email utilizando la librería SendEmail
-			try {
-				if(verboseFlag) {
-					console.log("Enviando email a: " + destinatario + " sobre: " + pdfname);
-				}
-				
-				// Llamar a la función AppSendEmailX de la librería SendEmail
-				SendEmail.AppSendEmailX(
-					destinatario,
-					remitente,
-					nombreDestinatario,
-					idDocumento,
-					idPDF,
-					asunto,
-					parametros,
-					cc,
-					bcc
-				);
-				
-				if(verboseFlag) {
-					console.log("Email enviado exitosamente");
-				}
-			} catch (emailError) {
-				console.error("Error al enviar email: " + emailError.message);
-				// No lanzamos el error para que continúe la ejecución
-			}
-		} else if(verboseFlag) {
-			console.log("No se envió email porque el destinatario está vacío");
-		}
-	}
-
-} catch (e) {
-	Logger.log('Error: ' + e.message);
-}
+        // Buscar información en DWO_Files para enviar el email
+        OpenSheet("DWO_Files", 1, file_ID, 0, ssActive);
+        if (auxFilteredValues && auxFilteredValues.length > 0) {
+            const dwoFilesData = auxFilteredValues[0];
+            
+            // Obtener información de contacto usando la nueva función
+            const contactInfo = getEmailContactInfo(dwoFilesData);
+            
+            // Solo enviar el email si hay un destinatario válido
+            if (contactInfo.destinatario && contactInfo.destinatario.trim() !== "") {
+                const remitente = dwoFilesData[12]; // Columna M
+                const idDocumento = "1A32AoqCjHrfSaW35ZapKtolw9JqMR0jnDhCd3c8FOnY";
+                const idPDF = "";
+                const asunto = "DubApp: Script uploaded for " + pdfname;
+                
+                // Preparar el parámetro de versión - quitar el sufijo ": Script_upload_lite"
+                let versionTexto = dwoFilesData[14] || ""; // Columna O
+                versionTexto = versionTexto.replace(/\s*:\s*Script_upload_lite$/, "");
+                
+                const parametros = "Title::DubApp: Script uploaded by " + contactInfo.nombreTraductor + 
+                    "||Header::A new script was uploaded for your attention: " + 
+                    "||Detail::" + pdfname + 
+                    "||Footer::" + versionTexto;
+                              
+                // Enviar el email utilizando la librería SendEmail
+                try {
+                    if(verboseFlag) {
+                        console.log("Enviando email a: " + contactInfo.destinatario + " sobre: " + pdfname);
+                    }
+                    
+                    // Llamar a la función AppSendEmailX de la librería SendEmail
+                    SendEmail.AppSendEmailX(
+                        contactInfo.destinatario,
+                        remitente,
+                        contactInfo.nombreDestinatario, // Usamos el nombre obtenido
+                        idDocumento,
+                        idPDF,
+                        asunto,
+                        parametros,
+                        contactInfo.cc, // Usamos el CC obtenido
+                        BCC_EMAIL
+                    );
+                    
+                    if(verboseFlag) {
+                        console.log("Email enviado exitosamente");
+                        console.log("Información del remitente:", contactInfo.nombreTraductor);
+                    }
+                } catch (emailError) {
+                    console.error("Error al enviar email: " + emailError.message);
+                    // No lanzamos el error para que continúe la ejecución
+                }
+            } else if(verboseFlag) {
+                console.log("No se envió email porque el destinatario está vacío");
+            }
+        }
+    } catch (e) {
+        Logger.log('Error: ' + e.message);
+    }
 }
 
 function Rand(n) {
@@ -1791,8 +1676,9 @@ function schedulePDFWitness(pdfname, file_ID) {
             .timeBased()
             .after(1000) // 1 segundo
             .create();
-            
-        conditionalLog('PDFWitness programado:', params);
+		if(verboseFlag){  
+        	console.log('PDFWitness programado:', params);
+		}
         return true;
 
     } catch (error) {
@@ -1806,7 +1692,9 @@ function schedulePDFWitness(pdfname, file_ID) {
 }
 
 function asyncPDFWitness() {
-    conditionalLog('Iniciando asyncPDFWitness');
+	if(verboseFlag){
+	    console.log('Iniciando asyncPDFWitness');
+	}
     try {
         // Obtener parámetros guardados
         const props = PropertiesService.getScriptProperties();
@@ -1823,7 +1711,7 @@ function asyncPDFWitness() {
         // Limpiar propiedades después de la ejecución
         props.deleteAllProperties();
         
-        conditionalLog('PDFWitness completado exitosamente');
+        console.log('PDFWitness completado exitosamente');
         
     } catch (error) {
         console.error('Error en asyncPDFWitness:', error);
@@ -1854,8 +1742,143 @@ function cleanupResources() {
 
 // Agregar función helper para logging al inicio del archivo
 function logOperationStatus(operation, details) {
-    if (verboseFlag) {
-        const timestamp = new Date().toISOString();
-        console.log(`${timestamp} - ${operation}: ${JSON.stringify(details)}`);
+    const timestamp = new Date().toISOString();
+    console.log(`${timestamp} - ${operation}: ${JSON.stringify(details)}`);
+}
+
+/**
+ * Procesa los datos para obtener información de destinatarios y remitentes
+ * @param {Array} dwoFilesData - Datos del archivo DWO_Files
+ * @returns {Object} Objeto con datos de contacto
+ */
+function getEmailContactInfo(dwoFilesData) {
+    try {
+        // Obtener el string de la columna Q
+        const infoString = dwoFilesData[16]; // Columna Q (índice 16)
+        if (!infoString) {
+            console.error("No se encontró información en columna Q");
+            return {
+                nombreDestinatario: "",
+                nombreTraductor: "",
+                destinatario: "",
+                cc: dwoFilesData[5] || "" // Mantener el CC actual como fallback
+            };
+        }
+        
+        // Fraccionar el string
+        const parts = infoString.split(" / ");
+        if (parts.length < 5) {
+            console.error("Formato incorrecto en columna Q:", infoString);
+            return {
+                nombreDestinatario: "",
+                nombreTraductor: "",
+                destinatario: dwoFilesData[4] || "", // Mantener destinatario actual como fallback
+                cc: dwoFilesData[5] || "" // Mantener el CC actual como fallback
+            };
+        }
+        
+        const channel = parts[0];
+        const projectID = parts[1];
+        const productionID = parts[2];
+        const emailRemitente = parts[3];
+        const file_ID = parts[4];
+        // El título puede contener " / " así que tomamos el resto
+        const titulo = parts.slice(5).join(" / ");
+        
+        console.log("Datos extraídos:", {
+            channel, projectID, productionID, emailRemitente, file_ID, titulo
+        });
+        
+        // Buscar en DWO-Production el Production ID
+        let directorEmail = "";
+        let projectManagerEmail = "";
+        
+        // Abrir DWO-Production (filtrar por productionID en columna A)
+        OpenSht("DWO-Production", 0, 1, productionID, 0, ssActive);
+        let encontrado = false;
+        if (auxFilteredValues && auxFilteredValues.length > 0) {
+            // Acceder directamente a la primera fila filtrada
+            const attributes = auxFilteredValues[0][42]; // Columna AQ (índice 42)
+            // Verificar si contiene el atributo buscado
+            if (attributes && attributes.includes("Alt Dialogue Director: ProductionAltAttributes")) {
+                directorEmail = auxFilteredValues[0][44] || ""; // Columna AS (índice 44)
+                encontrado = true;
+            }
+        }
+        
+        // Siempre buscar en DWO para obtener el Project Manager (filtrar por projectID en columna B)
+        OpenSht("DWO", 0, 2, projectID, 0, ssActive);
+        if (auxFilteredValues && auxFilteredValues.length > 0) {
+            // La primera fila debe tener la coincidencia
+            projectManagerEmail = auxFilteredValues[0][35] || ""; // Columna AJ (índice 35)
+            
+            // Solo obtener directorEmail de DWO si no se encontró en DWO-Production
+            if (!encontrado) {
+                directorEmail = auxFilteredValues[0][28] || ""; // Columna AC (índice 28)
+            }
+        }
+        
+        // Cargar App-User desde el spreadsheet correcto
+        const noTrackSpreadsheet = SpreadsheetApp.openById(allIDs["noTrackID"]);
+        
+        // Variables para buscar
+        let destinatario = "";
+        let nombreDestinatario = "";
+        let nombreTraductor = "";
+        
+        // Buscar la información de los usuarios en App-User usando el spreadsheet correcto
+        if (directorEmail || emailRemitente) {
+            const appUserSheet = noTrackSpreadsheet.getSheetByName("App-User");
+            if (appUserSheet) {
+                const appUserData = appUserSheet.getDataRange().getValues();
+                const appUserHeader = appUserData.shift(); // Eliminar la fila de encabezado
+                
+                // Buscar DirectorEmail
+                if (directorEmail) {
+                    const directorRow = appUserData.find(row => row[0] === directorEmail);
+                    if (directorRow) {
+                        destinatario = directorRow[11] || directorEmail; // Columna L (índice 11)
+                        nombreDestinatario = directorRow[1] || ""; // Columna B (índice 1)
+                        directorEmail=directorRow[2]; //Corpor
+                    }
+                }
+                
+                // Buscar EmailRemitente para obtener nombreTraductor
+                if (emailRemitente) {
+                    const traductorRow = appUserData.find(row => row[0] === emailRemitente);
+                    if (traductorRow) {
+                        nombreTraductor = traductorRow[1] || ""; // Columna B (índice 1)
+                    }
+                }
+            } else {
+                console.error("Hoja App-User no encontrada en noTrackID");
+            }
+        }
+        
+        // Construir cc con directorEmail y projectManagerEmail
+        let cc = [directorEmail, projectManagerEmail]
+            .filter(email => email && email.trim() !== "")
+            .join(", ");
+            
+        console.log("Información de contacto obtenida:", {
+            nombreDestinatario, nombreTraductor, destinatario, cc
+        });
+        
+        return {
+            nombreDestinatario,
+            nombreTraductor,
+            destinatario,
+            cc
+        };
+        
+    } catch (error) {
+        console.error("Error al obtener información de contacto:", error);
+        // Valores por defecto en caso de error
+        return {
+            nombreDestinatario: "",
+            nombreTraductor: "",
+            destinatario: dwoFilesData[4] || "", // Mantener destinatario actual como fallback
+            cc: dwoFilesData[5] || "" // Mantener el CC actual como fallback
+        };
     }
 }

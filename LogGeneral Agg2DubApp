@@ -1,0 +1,874 @@
+/**
+ * @fileoverview Sistema de sincronización entre Aggregator y DubApp
+ * Este script maneja la actualización de estados y la sincronización de datos entre
+ * hojas de cálculo del Aggregator y la aplicación DubApp para proyectos de doblaje.
+ * 
+ * @author No especificado
+ * @version 1.0
+ * 
+ * FUNCIONES PRINCIPALES:
+ * 
+ * StatusLog(e) - Punto de entrada que gestiona cambios en el estado de entidades
+ *   @param {Event} e - Evento de edición de hoja de cálculo
+ *   @returns {void}
+ * 
+ * appendProgram(sht, appLogSht, activeRow) - Registra cambios en programas
+ *   @param {Sheet} sht - Hoja activa
+ *   @param {Sheet} appLogSht - Hoja de registro
+ *   @param {number} activeRow - Fila activa
+ *   @returns {void}
+ * 
+ * appendEpisode(sht, appLogSht, activeRow) - Registra cambios en episodios
+ *   @param {Sheet} sht - Hoja activa
+ *   @param {Sheet} appLogSht - Hoja de registro
+ *   @param {number} activeRow - Fila activa
+ *   @returns {void}
+ * 
+ * appendWork(sht, appLogSht, activeRow) - Registra cambios en tareas de trabajo
+ *   @param {Sheet} sht - Hoja activa
+ *   @param {Sheet} appLogSht - Hoja de registro
+ *   @param {number} activeRow - Fila activa
+ *   @returns {void}
+ * 
+ * dubAppCheck(rowCase) - Verifica si un programa/episodio debe sincronizarse con DubApp
+ *   @param {number} rowCase - Número de fila a verificar
+ *   @returns {void}
+ * 
+ * loadProgramValues() - Carga valores de la hoja de programas
+ *   @returns {void}
+ * 
+ * loadEpisodeValues() - Carga valores de la hoja de episodios
+ *   @returns {void}
+ * 
+ * dubAppCheckProject(rowCase, dataCase) - Determina si un proyecto es elegible para DubApp
+ *   @param {number} rowCase - Fila del programa
+ *   @param {Array} dataCase - Datos del programa
+ *   @returns {boolean} - True si es elegible para sincronización
+ * 
+ * dubAppCheckProduction(rowCase, dataCase) - Gestiona la sincronización de producción
+ *   @param {number} rowCase - Fila del episodio
+ *   @param {Array} dataCase - Datos del episodio
+ *   @returns {void}
+ * 
+ * refreshProduction(aggEpisodeCase, dubProductionRow) - Actualiza o crea producción en DubApp
+ *   @param {Array} aggEpisodeCase - Datos del episodio
+ *   @param {number} dubProductionRow - Fila en DubApp o -1 para crear nueva
+ *   @returns {string} - ID de la producción
+ * 
+ * refreshDWO(aggProgramCase, dubProjectRow) - Actualiza o crea proyecto en DubApp
+ *   @param {Array} aggProgramCase - Datos del programa
+ *   @param {number} dubProjectRow - Fila en DubApp o -1 para crear nuevo
+ *   @returns {string} - ID del proyecto
+ * 
+ * openEpisodes() - Carga la hoja de episodios si no está cargada
+ *   @returns {void}
+ * 
+ * glossary(glossSource, glossKey) - Busca términos en el glosario
+ *   @param {string} glossSource - Fuente ("Aggregator" o "DubApp")
+ *   @param {string} glossKey - Clave a buscar
+ *   @returns {string} - Valor equivalente o cadena vacía
+ * 
+ * openSheet(sheetName) - Abre una hoja en DubApp
+ *   @param {string} sheetName - Nombre de la hoja
+ *   @returns {Object} - Objeto con valores e índices
+ * 
+ * dubAppProject(programID) - Busca un proyecto en DubApp por ID
+ *   @param {string} programID - ID del programa
+ *   @returns {number} - Índice o -1 si no existe
+ * 
+ * dubAppProduction(productionNumber) - Busca una producción en DubApp
+ *   @param {string} productionNumber - Número de producción
+ *   @returns {number} - Índice o -1 si no existe
+ * 
+ * dubAppSeries(seriesChannel, seriesTitle, seriesTitleSpa) - Busca o crea serie en DubApp
+ *   @param {string} seriesChannel - Canal de la serie
+ *   @param {string} seriesTitle - Título de la serie
+ *   @param {string} seriesTitleSpa - Título en español
+ *   @returns {number} - Índice de la serie
+ * 
+ * addContask(addTable, addKey, addAction) - Registra tarea de control
+ *   @param {string} addTable - Tabla afectada
+ *   @param {string} addKey - Clave primaria
+ *   @param {string} addAction - Acción (INSERT_ROW, EDIT)
+ *   @returns {void}
+ * 
+ * newKey(len) - Genera un identificador único aleatorio
+ *   @param {number} len - Longitud del identificador
+ *   @returns {string} - Identificador generado
+ */
+
+//Global declaration
+  //Flexible loading
+  var ssActiveDubApp = null;
+  var dubAppTotalID="1d258eRpy3NovzQ1wKX_WVRCfXhxc2u2pwpYUuTDyfIw";
+  var dubAppIDControl = "1P-kQdID7dwG4UUezuF0QuJq7G3swDaAwaznBNwnNvCk";
+  var aggregatorID ="1sNOJ0f0yYDMqxKo97C7tx1npwxuyBP0-BmnXrFIGEzA";
+
+  var Contask = null;
+
+  var programSheet = null;
+  var programValues = null;
+  var programNDX = null;
+  var programRow = null;
+
+  var episodeSheet = null;
+  var episodeValues = null;
+  var episodeNDX = null;
+  var episodeRow = null;
+
+  var productionSheet = null;
+  var productionValues = null;
+  var productionNDX = null;
+  var productionNDX2 = null;
+  var productionNDX3 = null;
+  var productionRow = null;
+
+  var seriesSheet = null;
+  var seriesValues = null;
+  var seriesNDX = null;
+
+  var glossarySheet = null;
+  var glossaryValues = null;
+  var glossaryNDXAgg = null;
+  var glossaryNDXDubApp = null;
+
+  var dwoSheet = null;
+  var dwoValues = null;
+  var dwoNDX = null;
+  var dwoNDX2 = null;
+  var dwoRow = null;
+  var dwoProjectID = null;
+  var dwoFormat =  null;
+  var dwoEstimatedTRT = null;
+
+  var sSht = null;
+  var sht = null;
+  var shtName = null;
+
+  var timezone = "GMT-3";
+  var timestamp_format = "dd/MM/yyyy HH:mm:ss";
+  var tmpTimeStamp = Utilities.formatDate(new Date(), timezone, timestamp_format);
+
+  var lastUser = null;
+
+  var debug=false;
+
+  var verbose=true;
+
+
+
+function StatusLog(e) {
+  if(debug) {
+    shtName = "AggProgram";
+    sSht = SpreadsheetApp.openById(aggregatorID);
+    sht = sSht.getSheetByName(shtName);
+    var rngW = 1;
+    var activeCol = 26;
+    var activeRow = 1006;
+    var rngStartIndex = 0;
+    var rngEndIndex = 0;
+  } else {
+    sSht = e.source;
+    sht = sSht.getActiveSheet();
+    shtName = sht.getName();
+    var activeRng = sht.getActiveRange();
+    var rngW = activeRng.getWidth();
+    var activeCol = activeRng.getColumn();
+    var activeRow = activeRng.getRow();
+    var rngStartIndex = activeCol;
+    var rngEndIndex = activeCol + rngW - 1;
+  }
+  var appLogSht;
+
+  if (verbose) {console.log(shtName+" // "+activeRow)};
+
+  if(activeRow==1) {return};
+
+  if (shtName === "AggProgram") {
+    appLogSht = sSht.getSheetByName("AggLogProgram");
+    if ((rngW == 1 && activeCol == 26) || (rngStartIndex <= 26 && rngEndIndex >= 26)) {
+      appendProgram(sht, appLogSht, activeRow);
+    }
+    var dubAppRef = sht.getRange(activeRow,48).getValue();
+    if(dubAppRef!="") {
+      if (verbose) {console.log("dubAppCheck(activeRow) "+activeRow)};
+      dubAppCheck(activeRow);
+    }
+
+  } else if (shtName === "AggEpisode") {
+    appLogSht = sSht.getSheetByName("AggLogEpisode");
+    if ((rngW == 1 && activeCol == 31) || (rngStartIndex <= 31 && rngEndIndex >= 31)) {
+      appendEpisode(sht, appLogSht, activeRow);
+    }
+    dubAppCheck(activeRow);
+    
+  } else if (shtName === "AggWork") {
+    appLogSht = sSht.getSheetByName("AggLogWork");
+    if ((rngW == 1 && activeCol == 41) || (rngStartIndex <= 41 && rngEndIndex >= 41)) {
+      appendWork(sht, appLogSht, activeRow);
+    }
+  }
+}
+
+/**
+ * Registra cambios de estado en programas y actualiza el log
+ * 
+ * @param {Sheet} sht - Hoja AggProgram
+ * @param {Sheet} appLogSht - Hoja AggLogProgram para registrar cambios
+ * @param {number} activeRow - Fila activa en la hoja
+ * 
+ * Columnas clave utilizadas:
+ * - Col 1: Program ID - Identificador único del programa
+ * - Col 26: Status - Estado actual del programa (ej: "3) DWO cumplida", "2) DWO recibido")
+ * - Col 28: Last user - Usuario que realizó el último cambio
+ * - Col 24: Comment - Comentarios sobre el cambio de estado
+ * - Col 33: Status Log - Registro del último estado para comparación
+ */
+function appendProgram(sht, appLogSht, activeRow) {
+  var tmpStatus = sht.getRange(activeRow, 26).getValue();
+  var tmpStatusLog = sht.getRange(activeRow, 33).getValue();
+  if (tmpStatus != tmpStatusLog) {
+    var tmpProgramID = "'" + sht.getRange(activeRow, 1).getValue().toString();
+    var tmpUserMail = sht.getRange(activeRow, 28).getValue();
+    var tmpStatus = sht.getRange(activeRow, 26).getValue();
+
+    var tmpTypeChange = "Status";
+    var tmpComment = sht.getRange(activeRow, 24).getValue();
+    var tmpNextstamp;
+    appLogSht.appendRow([tmpTimeStamp, tmpProgramID, tmpUserMail, tmpStatus, tmpTypeChange, tmpComment, tmpNextstamp]);
+    if (verbose) {console.log("Append Program log "+tmpProgramID)};
+    sht.getRange(activeRow, 33).setValue(tmpStatus);
+  }
+}
+
+/**
+ * Registra cambios de estado en episodios y actualiza el log
+ * 
+ * @param {Sheet} sht - Hoja AggEpisode
+ * @param {Sheet} appLogSht - Hoja AggLogEpisode para registrar cambios
+ * @param {number} activeRow - Fila activa en la hoja
+ * 
+ * Columnas clave utilizadas:
+ * - Col 2: Production Number - Número de producción del episodio
+ * - Col 31: Status - Estado actual del episodio
+ * - Col 33: Last user - Usuario que realizó el último cambio
+ * - Col 30: Comment - Comentarios sobre el cambio de estado
+ * - Col 42: Status Log - Registro del último estado para comparación
+ */
+function appendEpisode(sht, appLogSht, activeRow) {
+  var tmpStatus = sht.getRange(activeRow, 31).getValue();
+  var tmpStatusLog = sht.getRange(activeRow, 42).getValue();
+  if (tmpStatus != tmpStatusLog) {
+    var tmpProdNumber = sht.getRange(activeRow, 2).getValue();
+    var tmpUserMail = sht.getRange(activeRow, 33).getValue();
+
+    var tmpTypeChange = "Status";
+    var tmpComment = sht.getRange(activeRow, 30).getValue();
+    var tmpNextstamp;
+    appLogSht.appendRow([tmpTimeStamp, tmpProdNumber, tmpUserMail, tmpStatus, tmpTypeChange, tmpComment, tmpNextstamp]);
+    if (verbose) {console.log("Append Episode log "+tmpProdNumber)};
+    sht.getRange(activeRow, 42).setValue(tmpStatus);
+    sht.getRange(activeRow, 30).setValue("");
+  }
+}
+
+/**
+ * Registra cambios de estado en tareas de trabajo y actualiza el log
+ * 
+ * @param {Sheet} sht - Hoja AggWork
+ * @param {Sheet} appLogSht - Hoja AggLogWork para registrar cambios
+ * @param {number} activeRow - Fila activa en la hoja
+ * 
+ * Columnas clave utilizadas:
+ * - Col 1: Program - Programa asociado al trabajo
+ * - Col 2: Episode - Episodio asociado al trabajo
+ * - Col 41: Status - Estado actual del trabajo
+ * - Col 43: Last user - Usuario que realizó el último cambio
+ * - Col 40: Comment - Comentarios sobre el cambio de estado
+ * - Col 53: Status Log - Registro del último estado para comparación
+ */
+function appendWork(sht, appLogSht, activeRow) {
+  var tmpStatus = sht.getRange(activeRow, 41).getValue();
+  var tmpStatusLog = sht.getRange(activeRow, 53).getValue();
+  if (tmpStatus != tmpStatusLog) {
+    var tmpLocalizacion = sht.getRange(activeRow, 1).getValue() + ": " + sht.getRange(activeRow, 2).getValue();
+    var tmpUserMail = sht.getRange(activeRow, 43).getValue();
+
+    var tmpTypeChange = "Status";
+    var tmpComment = sht.getRange(activeRow, 40).getValue();
+    var tmpNextstamp;
+    appLogSht.appendRow([tmpTimeStamp, tmpLocalizacion, tmpUserMail, tmpStatus, tmpTypeChange, tmpComment, tmpNextstamp]);
+    if (verbose) {console.log("Append Work log "+tmpLocalizacion)};
+    sht.getRange(activeRow, 53).setValue(tmpStatus);
+    sht.getRange(activeRow, 40).setValue("");
+  }
+}
+
+/**
+ * Verifica si un programa/episodio debe sincronizarse con DubApp basado en su estado
+ */
+function dubAppCheck(rowCase) {
+  if (verbose) {console.log("dubAppCheck(rowCase) "+rowCase)};
+  if (programValues === null) {
+    loadProgramValues();
+  }
+
+  if (shtName !== "AggProgram") {
+    if (episodeValues === null) {
+      loadEpisodeValues();
+    }
+    var auxRowCase = rowCase;
+    var auxKey = episodeValues[rowCase - 2][0]+"";
+    rowCase = programNDX.indexOf(auxKey) + 2;
+    
+    // Si no se encuentra el programa, detener
+    if (rowCase <= 1) {
+      if (verbose) {console.log("No se encontró programa asociado para el episodio")};
+      return;
+    }
+  }
+
+  if (shtName !== "AggProgram" || (shtName === "AggProgram" && programValues[rowCase - 2][47] !== "")) {
+    var auxCase = programValues[rowCase - 2];
+    
+    // Permitir sincronización si:
+    // 1. El programa está en "2) DWO recibido" O
+    // 2. El programa está en "3) DWO cumplida" Y tiene un link activo a DubApp
+    if (auxCase[25] === "2) DWO recibido" || 
+        (auxCase[25] === "3) DWO cumplida" && auxCase[47] === "Active")) {
+      
+      if (dubAppCheckProject(rowCase, auxCase) && shtName !== "AggProgram") {
+        var auxCase = episodeValues[auxRowCase - 2];
+        dubAppCheckProduction(auxRowCase, auxCase);
+      }
+    } else {
+      if (verbose) {console.log("Programa en estado no elegible para sincronización: " + auxCase[25])};
+    }
+  }
+}
+
+/**
+ * Carga valores de la hoja de programas para búsquedas e indexación
+ * 
+ * La función carga datos de AggProgram:
+ * - La primera columna (Program ID) se usa para indexación
+ * - Se cargan todas las columnas para acceso a información como:
+ *   - Program (col 1)
+ *   - Program Spa (col 2)
+ *   - Content Type (col 4)
+ *   - Original Language (col 5)
+ *   - Status (col 26)
+ *   - Channel (col 30)
+ *   - Services (col 37)
+ */
+function loadProgramValues() {
+  programSheet = sSht.getSheetByName("AggProgram");
+  var lastRow = programSheet.getLastRow();
+  var lastCol = programSheet.getLastColumn();
+  var auxData = programSheet.getRange(2, 1, lastRow - 1, lastCol);
+  programValues = auxData.getValues();
+  programNDX = programValues.map(function (r) { return r[0].toString(); });
+}
+
+/**
+ * Carga valores de la hoja de episodios para búsquedas e indexación
+ * 
+ * La función carga datos de AggEpisode:
+ * - La columna 1 (Production Number) se usa para indexación principal
+ * - Se cargan todas las columnas para acceso a información como:
+ *   - Program ID (col 0)
+ *   - Episode Title (col 2)
+ *   - Episode Number (col 3)
+ *   - Episode Title Spa (col 5)
+ */
+function loadEpisodeValues() {
+  episodeSheet = sSht.getSheetByName("AggEpisode");
+  var lastRow = episodeSheet.getLastRow();
+  var lastCol = episodeSheet.getLastColumn();
+  var auxData = episodeSheet.getRange(2, 1, lastRow - 1, lastCol);
+  episodeValues = auxData.getValues();
+  episodeNDX = episodeValues.map(function (r) { return r[1].toString(); });
+}
+
+/**
+ * Determina si un proyecto es elegible para sincronización con DubApp
+ * 
+ * @param {number} rowCase - Fila del programa en AggProgram
+ * @param {Array} dataCase - Datos del programa
+ * @returns {boolean} - True si es elegible para sincronización
+ * 
+ * Criterios de elegibilidad:
+ * - Debe tener vendor "Non Stop" (col 21)
+ * - Debe tener al menos uno de estos servicios en Services (col 37):
+ *   - Dub
+ *   - Voice Over
+ *   - Audio description
+ *   - Metadata
+ */
+function dubAppCheckProject(rowCase, dataCase) {
+  var isLinkable = false;
+  var servicesCase = dataCase[37];
+  servicesCase = servicesCase.split(" , ");
+
+  if (dataCase[21] == "Non Stop" && (servicesCase.indexOf("Dub") != -1 || servicesCase.indexOf("Voice Over") != -1 || servicesCase.indexOf("Audio description") != -1 || servicesCase.indexOf("Metadata") != -1)) {
+    let dubProjectAuxRow = dubAppProject(dataCase[0]);
+    let dubProjectAuxKey = refreshDWO(dataCase, dubProjectAuxRow);
+    if (dataCase[48] === "") {
+      programSheet.getRange(rowCase, 48).setValue("Active");
+      programSheet.getRange(rowCase, 49).setValue(dubProjectAuxKey);
+    }
+    isLinkable=true;
+  }
+  if (verbose) {console.log("Project elegible "+isLinkable)};
+  return isLinkable;
+}
+
+/**
+ * Gestiona la sincronización de información de episodio/producción con DubApp
+ * 
+ * @param {number} rowCase - Fila del episodio en AggEpisode
+ * @param {Array} dataCase - Datos del episodio
+ * 
+ * Actualiza:
+ * - Col 64: DubApp link status - Estado de enlace con DubApp ("Active")
+ * - Col 65: Production ID - ID de la producción en DubApp
+ */
+function dubAppCheckProduction(rowCase, dataCase) {
+  // 1. Obtener la Production ID existente si hay una
+  var existingProductionID = dataCase[64] === "Active" ? dataCase[65] : "";
+  
+  // 2. Verificar existencia en DubAppProduction (que es un IMPORTRANGE de DWO-Production)
+  var productionExists = false;
+  var dubProductionAuxRow = -1;
+  
+  if (existingProductionID !== "") {
+    // Cargar DubAppProduction si no está cargado
+    if (!ssActiveDubApp) {
+      ssActiveDubApp = SpreadsheetApp.openById(dubAppTotalID);
+    }
+    
+    // Usar la pestaña DubAppProduction que ya tiene el IMPORTRANGE filtrado
+    var dubAppProductionSheet = ssActiveDubApp.getSheetByName("DubAppProduction");
+    if (dubAppProductionSheet) {
+      var lastRow = dubAppProductionSheet.getLastRow();
+      // Si hay datos en la pestaña
+      if (lastRow > 1) {
+        // Buscar solo en la columna A que tiene los Production IDs
+        var productionIDs = dubAppProductionSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+        // Convertir a array plano para búsqueda
+        var productionIDArray = productionIDs.map(function(row) { return row[0].toString(); });
+        // Buscar el ID
+        var foundIndex = productionIDArray.indexOf(existingProductionID);
+        
+        if (foundIndex !== -1) {
+          productionExists = true;
+          if (verbose) {console.log("Production ID " + existingProductionID + " encontrado en DubAppProduction")};
+        } else {
+          if (verbose) {console.log("Production ID " + existingProductionID + " no existe en DubAppProduction")};
+        }
+      }
+    }
+    
+    // Si no existe en DubAppProduction, limpiar los valores para recrear
+    if (!productionExists) {
+      episodeSheet.getRange(rowCase, 64).setValue("");
+      episodeSheet.getRange(rowCase, 65).setValue("");
+      if (verbose) {console.log("Limpiando referencias para recrear Production ID")};
+    }
+  }
+  
+  // 3. Buscar por Production Number (siempre hacer esto)
+  dubProductionAuxRow = dubAppProduction(dataCase[1]);
+  
+  // 4. Crear o actualizar la producción
+  dubProductionAuxKey = refreshProduction(dataCase, dubProductionAuxRow);
+  
+  // 5. Actualizar columnas de enlace si es necesario
+  if (dataCase[64] === "") {
+    episodeSheet.getRange(rowCase, 64).setValue("Active");
+    episodeSheet.getRange(rowCase, 65).setValue(dubProductionAuxKey);
+    if (verbose) {console.log("Nueva vinculación de episodio: " + dataCase[1] + " → " + dubProductionAuxKey)};
+  } else if (dataCase[64] === "Active" && dataCase[65] !== dubProductionAuxKey && productionExists) {
+    // Solo actualizar el ID si cambió y la producción existe
+    episodeSheet.getRange(rowCase, 65).setValue(dubProductionAuxKey);
+    if (verbose) {console.log("Actualización de ID para episodio: " + dataCase[1] + " → " + dubProductionAuxKey)};
+  }
+}
+
+/**
+ * Actualiza o crea entradas de producción en DubApp basadas en datos del episodio
+ * 
+ * @param {Array} aggEpisodeCase - Datos del episodio de AggEpisode
+ * @param {number} dubProductionRow - Fila en DubApp Production o -1 para crear nueva
+ * @returns {string} - ID de la producción en DubApp
+ * 
+ * Campos sincronizados:
+ * - Production Number (col 1)
+ * - Episode Number (col 3) → Reference
+ * - Episode Title (col 2)
+ * - Episode Title Spa (col 5)
+ * - Nomenclature (col 65)
+ * - Estimated TRT (duración basada en el formato)
+ */
+function refreshProduction(aggEpisodeCase, dubProductionRow) {
+  var auxChangeKey = null;
+  lastUser = aggEpisodeCase[32];
+  var auxProductionNumber = aggEpisodeCase[1] + "";
+  var auxType = dwoFormat === "Series: FormatType" ? "Episode: Series: FormatType" : "Movie: Standalone: FormatType";
+  var auxEstimatedTRT = dwoEstimatedTRT;
+  var auxReference = "F"+Utilities.formatString("%003d", aggEpisodeCase[3]); 
+  var auxEpisodeTitle = aggEpisodeCase[2];
+  var auxNomenclature = aggEpisodeCase[65];
+  var auxTitleSpa = aggEpisodeCase[5];
+
+  if (dubProductionRow === -1) {
+    dubAppProduction("");
+    var auxProductionID = auxProductionNumber + "-" + newKey(5);
+    var buffer = [auxProductionID, dwoProjectID, auxType, auxReference, auxEpisodeTitle, null, null, null, null, auxNomenclature, null, null, null, null, null, null, null, null, null, auxTitleSpa, null, null, null, auxEstimatedTRT, "Unblock", true, null, null, null, null, null, false, null, null, null, "(01) Waiting for assets: DWOProduct", lastUser, tmpTimeStamp, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, auxProductionNumber, null, null, null, null];
+    productionSheet.appendRow(buffer);
+    addContask("DWO-Production", auxProductionID, "INSERT_ROW");
+    if (verbose) {console.log("Append DubApp Production "+auxProductionID)};
+    auxChangeKey = auxProductionID;
+  } else {
+    var dubappProductionCase = productionValues[dubProductionRow];
+    var updateNeeded = false;
+    auxChangeKey = dubappProductionCase[0];
+    
+    if (auxEstimatedTRT !== dubappProductionCase[23]) {
+      productionSheet.getRange(dubProductionRow + 2, 24).setValue(auxEstimatedTRT);
+      updateNeeded = true;
+    }
+    if (auxReference !== dubappProductionCase[3]) {
+      productionSheet.getRange(dubProductionRow + 2, 4).setValue(aggEpisodeCase[3]);
+      updateNeeded = true;
+    }
+    if (auxEpisodeTitle !== dubappProductionCase[4]) {
+      productionSheet.getRange(dubProductionRow + 2, 5).setValue(aggEpisodeCase[2]);
+      updateNeeded = true;
+    }
+    if (auxNomenclature !== dubappProductionCase[9]) {
+      productionSheet.getRange(dubProductionRow + 2, 10).setValue(aggEpisodeCase[65]);
+      updateNeeded = true;
+    }
+    if (auxTitleSpa !== dubappProductionCase[19]) {
+      productionSheet.getRange(dubProductionRow + 2, 20).setValue(aggEpisodeCase[5]);
+      updateNeeded = true;
+    } 
+
+    if (updateNeeded) {
+      addContask("DWO-Production", auxChangeKey, "EDIT");
+      if (verbose) {console.log("Update DubApp Production "+auxChangeKey)};
+    }
+  }
+
+  return auxChangeKey;
+}
+
+/**
+ * Actualiza o crea proyectos en DubApp basados en datos del programa
+ * 
+ * @param {Array} aggProgramCase - Datos del programa de AggProgram
+ * @param {number} dubProjectRow - Fila en DubApp DWO o -1 para crear nuevo
+ * @returns {string} - ID del proyecto en DubApp
+ * 
+ * Campos sincronizados:
+ * - Program ID (col 0)
+ * - Program (col 1) → Title o Series/Season
+ * - Program Spa (col 2) → Title translated
+ * - Content Type (col 4) → Format
+ * - Original Language (col 5)
+ * - Duration (col 7)
+ * - Channel (col 30)
+ * - QC Creative (col 28)
+ * - Number of episodes (col 17)
+ * - Services (col 37)
+ * - Content Category (col 39) → Content
+ */
+function refreshDWO(aggProgramCase, dubProjectRow) {
+
+  lastUser = aggProgramCase[27];
+  var auxChannel = glossary("Aggregator", "Channel" + aggProgramCase[38]);
+  var auxProgramID = aggProgramCase[0] + "";
+  dwoFormat = glossary("Aggregator", "Format" + aggProgramCase[4]);
+  var auxSerie = "";
+  var auxSeason = "";
+  var auxTitle = "";
+
+  if (dwoFormat == "Series: FormatType") {
+    var arraySerie = aggProgramCase[1].split(" // ");
+    auxSerie = arraySerie[0];
+    auxSeason = arraySerie[1];
+    var aux = dubAppSeries(auxChannel, auxSerie, aggProgramCase[2]);
+  } else {
+    auxTitle = aggProgramCase[1];
+  }
+
+  var auxTitleTranslated = aggProgramCase[2];
+  var auxQCCreative = aggProgramCase[28];
+  var auxContent = glossary("Aggregator", "Content" + aggProgramCase[39]);
+  dwoEstimatedTRT = glossary("Aggregator", "Duration" + aggProgramCase[7]);
+  var auxMailDataOut = glossary("Aggregator", "MailDataOut");
+  var auxDuration = !aggProgramCase[7] ? "" : aggProgramCase[7]+": Duration option";
+  var auxEpisodes = aggProgramCase[17];
+  var arrayServices = aggProgramCase[37].split(" , ");
+  var auxServices = arrayServices.map(function(service) { return glossary("Aggregator", "Services" + service); }).join(" / ");
+  var auxOriginalLanguage = glossary("Aggregator", "OrigLang" + aggProgramCase[5]);
+
+  if (dubProjectRow === -1) {
+    dwoProjectID = auxProgramID + "-" + newKey(30);
+    dubAppProject("");
+    var buffer = [auxChannel, dwoProjectID, "Argentina", dwoFormat, auxContent, "Live action: ProjectType", auxTitle, auxChannel+": "+auxSerie, auxSeason, null, tmpTimeStamp, 3, "Aggregator", dwoEstimatedTRT, auxDuration, auxEpisodes, auxServices, "Realization: Contract Currency , Lyricist: Contract Currency", "2.0: MixSoundRequest", false, auxOriginalLanguage, "LAS: RequestedLanguage", false, null, null, null, null, null, null, null, null, null, false, null, null, "denise.surce@mediaaccesscompany.com", null, null, null, null, null, null, null, "Nat Geo: Sandra Brizuela", auxQCCreative, null, null, null, "Unblock", null, null, "F", null, null, null, null, auxMailDataOut, null, "(01) On track: DWO", lastUser, tmpTimeStamp, null, null, null, null, "", null, null, null, auxProgramID, null, null, auxTitleTranslated, null, null, null, null, null, null, null, null, null, null];
+    dwoSheet.appendRow(buffer);
+    addContask("DWO", dwoProjectID, "INSERT_ROW");
+    if (verbose) {console.log("Append DubApp DWO "+dwoProjectID)};
+    auxChangeKey = dwoProjectID;
+  } else {
+    var dubappDWOCase = dwoValues[dubProjectRow];
+    dwoProjectID = dubappDWOCase[1];
+    var updateNeeded = false;
+    if (dwoFormat === "Series: FormatType") {
+      if (dubappDWOCase[8] !== auxSeason) {
+        dwoSheet.getRange(dubProjectRow + 2, 9).setValue(auxSeason);
+        updateNeeded = true;
+      }
+      if (dubappDWOCase[15] !== auxEpisodes) {
+        dwoSheet.getRange(dubProjectRow + 2, 16).setValue(auxEpisodes);
+        updateNeeded = true;
+      }
+    } else {
+      if (dubappDWOCase[6] !== auxTitle) {
+        dwoSheet.getRange(dubProjectRow + 2, 7).setValue(auxTitle);
+        updateNeeded = true;
+      }
+    }
+    if (dubappDWOCase[72] !== auxTitleTranslated) {dwoSheet.getRange(dubProjectRow + 2, 74).setValue(auxTitleTranslated); updateNeeded = true;}
+    if (dubappDWOCase[4] !== auxContent) {dwoSheet.getRange(dubProjectRow + 2, 5).setValue(auxContent); updateNeeded = true;}
+    if (dubappDWOCase[44] !== auxQCCreative && !updateNeeded) {updateNeeded = true;}
+    if (dubappDWOCase[14] !== auxDuration) {dwoSheet.getRange(dubProjectRow + 2, 15).setValue(auxDuration); updateNeeded = true;}
+    if (dubappDWOCase[13] !== dwoEstimatedTRT) {dwoSheet.getRange(dubProjectRow + 2, 14).setValue(dwoEstimatedTRT); updateNeeded = true;}
+    if (dubappDWOCase[16] !== auxServices) {dwoSheet.getRange(dubProjectRow + 2, 17).setValue(auxServices); updateNeeded = true;}
+    if (updateNeeded) {
+      addContask("DWO", dwoProjectID, "EDIT");
+      if (verbose) {console.log("Update DubApp DWO "+dwoProjectID)};
+    }
+
+    return dwoProjectID;
+
+  }
+
+  return dwoProjectID;
+}
+
+/**
+ * Carga la información de episodios si no está ya cargada
+ * 
+ * Crea tres índices principales:
+ * - episodeNDX: Por Program ID (col 0)
+ * - episodeNDX2: Por Production Number (col 1)
+ * - episodeNDX3: Por Production ID de DubApp (col 64)
+ */
+function openEpisodes() {
+  if (!episodeSheet) {
+    episodeSheet = sSht.getSheetByName("AggEpisode");
+    var lastRow = episodeSheet.getLastRow();
+    var lastCol = episodeSheet.getLastColumn();
+    var auxData = episodeSheet.getRange(2, 1, lastRow - 1, lastCol);
+    episodeValues = auxData.getValues();
+    episodeNDX = episodeValues.map(function (r) { return r[0].toString(); }); //Program ID
+    episodeNDX2 = episodeValues.map(function (r) { return r[1].toString(); }); //Production Number
+    episodeNDX3 = episodeValues.map(function (r) { return r[64].toString(); }); //Production ID
+  }
+}
+
+/**
+ * Busca términos en el glosario para traducción entre sistemas
+ * 
+ * @param {string} glossSource - Fuente ("Aggregator" o "DubApp")
+ * @param {string} glossKey - Clave a buscar
+ * @returns {string} - Valor equivalente o cadena vacía
+ * 
+ * Categorías comunes de mapeo:
+ * - Channel - Canales (Nat Geo Lineal, etc.)
+ * - Format - Tipos de formato (Series, Special, etc.)
+ * - Services - Servicios (Dub, Sub, etc.)
+ * - OrigLang - Idiomas originales (Engl, Spa, etc.)
+ * - Duration - Duraciones estándar
+ * - Content - Categorías de contenido (Factual, Reality, etc.)
+ */
+function glossary(glossSource, glossKey) {
+  if (!glossarySheet) {
+    glossarySheet = sSht.getSheetByName("AggDubAppGlossary");
+    var lastRow = glossarySheet.getLastRow();
+    var lastCol = glossarySheet.getLastColumn();
+    var auxData = glossarySheet.getRange(2, 1, lastRow - 1, lastCol);
+    glossaryValues = auxData.getValues();
+    glossaryNDXAgg = glossaryValues.map(function (r) { return r[1].toString(); }); //Agg key
+    glossaryNDXDubApp = glossaryValues.map(function (r) { return r[2].toString(); }); //DubApp key
+  }
+
+  var equivalence = glossSource === "Aggregator" ? glossaryNDXAgg.indexOf(glossKey) : glossaryNDXDubApp.indexOf(glossKey);
+  return equivalence !== -1 ? glossaryValues[equivalence][glossSource === "Aggregator" ? 4 : 3] : "";
+}
+
+/**
+ * Abre una hoja en DubApp y prepara índices
+ * 
+ * @param {string} sheetName - Nombre de la hoja en DubApp
+ * @returns {Object} - Objeto con valores e índices (NDX basado en col 1, NDX2 en col 69)
+ */
+function openSheet(sheetName) {
+  if (!ssActiveDubApp) {
+    ssActiveDubApp = SpreadsheetApp.openById(dubAppTotalID);
+  }
+  var sheet = ssActiveDubApp.getSheetByName(sheetName);
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var auxData = sheet.getRange(2, 1, lastRow - 1, lastCol);
+  return {
+    values: auxData.getValues(),
+    NDX: auxData.getValues().map(function (r) { return r[1].toString(); }),
+    NDX2: auxData.getValues().map(function (r) { return r[69].toString(); })
+  };
+}
+
+/**
+ * Busca un proyecto en DubApp por su ID de programa
+ * 
+ * @param {string} programID - ID del programa de AggProgram (col 0)
+ * @returns {number} - Índice de fila encontrada o -1 si no existe
+ * 
+ * Utiliza:
+ * - dwoNDX: Índice por Project ID en DubApp DWO (col 1)
+ * - dwoNDX2: Índice por Program ID de Aggregator (col 69)
+ */
+function dubAppProject(programID) {
+  if (!ssActiveDubApp) {
+    ssActiveDubApp = SpreadsheetApp.openById(dubAppTotalID);
+  }
+  if (!dwoSheet) {
+    dwoSheet = ssActiveDubApp.getSheetByName("DWO");
+    var lastRow = dwoSheet.getLastRow();
+    var lastCol = dwoSheet.getLastColumn();
+    var auxData = dwoSheet.getRange(2, 1, lastRow - 1, lastCol);
+    dwoValues = auxData.getValues();
+    dwoNDX = dwoValues.map(function (r) { return r[1].toString(); });
+    dwoNDX2 = dwoValues.map(function (r) { return r[69].toString(); });
+  }
+  programID = programID + "";
+  if (programID!="") {
+    dwoRow = dwoNDX2.indexOf(programID);
+    return dwoRow;
+  } else {return -1}
+}
+
+/**
+ * Busca una producción en DubApp por su número de producción
+ * 
+ * @param {string} productionNumber - Número de producción de AggEpisode (col 1)
+ * @returns {number} - Índice de fila encontrada o -1 si no existe
+ * 
+ * Utiliza:
+ * - productionNDX: Índice por Production ID en DubApp (col 0)
+ * - productionNDX2: Índice por Project ID en DubApp (col 1)
+ * - productionNDX3: Índice por Production Number de Aggregator (col 58)
+ */
+function dubAppProduction(productionNumber) {
+  if (!ssActiveDubApp) {
+    ssActiveDubApp = SpreadsheetApp.openById(dubAppTotalID);
+  }
+  if (!productionSheet) {
+    productionSheet = ssActiveDubApp.getSheetByName("DWO-Production");
+    var lastRow = productionSheet.getLastRow();
+    var lastCol = productionSheet.getLastColumn();
+    var auxData = productionSheet.getRange(2, 1, lastRow - 1, lastCol);
+    productionValues = auxData.getValues();
+    productionNDX = productionValues.map(function (r) { return r[0].toString(); }); // Production ID
+    productionNDX2 = productionValues.map(function (r) { return r[1].toString(); }); // Project ID
+    productionNDX3 = productionValues.map(function (r) { return r[58].toString(); }); // Production Number
+  }
+  
+  productionNumber = productionNumber + "";
+  if (productionNumber!="") {
+    productionRow = productionNDX3.indexOf(productionNumber);
+    return productionRow;
+  } else {return -1}
+}
+
+/**
+ * Busca o crea una serie en DubApp
+ * 
+ * @param {string} seriesChannel - Canal de la serie (de Channel en AggProgram)
+ * @param {string} seriesTitle - Título de la serie (parte de Program en AggProgram)
+ * @param {string} seriesTitleSpa - Título en español (Program Spa en AggProgram)
+ * @returns {number} - Índice de la serie en DubApp
+ * 
+ * Si la serie no existe, crea un nuevo registro con estado "(01) Enabled: Generic"
+ */
+function dubAppSeries(seriesChannel, seriesTitle, seriesTitleSpa) {
+  if (!ssActiveDubApp) {
+    ssActiveDubApp = SpreadsheetApp.openById(dubAppTotalID);
+  }
+  if (!seriesSheet) {
+    seriesSheet = ssActiveDubApp.getSheetByName("DWO-Series");
+    var lastRow = seriesSheet.getLastRow();
+    var lastCol = seriesSheet.getLastColumn();
+    var auxData = seriesSheet.getRange(2, 1, lastRow - 1, lastCol);
+    seriesValues = auxData.getValues();
+    seriesNDX = seriesValues.map(function (r) { return r[1].toString(); }); // series title
+  }
+  let seriesRow = seriesNDX.indexOf(seriesTitle, 0);
+  while (seriesRow != -1 && seriesValues[seriesRow][0] !== seriesChannel) {
+    seriesRow = seriesNDX.indexOf(seriesTitle, seriesRow + 1);
+  }
+  if (seriesRow === -1) {
+    var auxSeries = [seriesChannel, seriesTitle, seriesTitleSpa, "", "", "", "(01) Enabled: Generic", lastUser, tmpTimeStamp, "", "", "", ""];
+    seriesSheet.appendRow(auxSeries);
+    if (verbose) {console.log("Append DubApp Series "+seriesTitle)};
+    addContask("DWO-Series", seriesTitle, "INSERT_ROW");
+    seriesRow = seriesNDX.length;
+    seriesNDX.push(seriesTitle);
+    seriesValues.push(auxSeries);
+  }
+  return seriesRow;
+}
+
+/**
+ * Registra una tarea de control para seguimiento de cambios
+ * 
+ * @param {string} addTable - Tabla afectada (DWO, DWO-Production, DWO-Series)
+ * @param {string} addKey - Clave primaria (ID de la entidad)
+ * @param {string} addAction - Acción (INSERT_ROW, EDIT)
+ * 
+ * Crea registros en CON-TaskCurrent con estado "01 Pending" y
+ * origen "Aggregator" para rastrear sincronizaciones
+ */
+function addContask(addTable, addKey, addAction) {
+  if (!Contask) {
+    Contask = SpreadsheetApp.openById(dubAppIDControl);
+    Contask = Contask.getSheetByName("CON-TaskCurrent");
+  }
+  addKey = addKey + "";
+  var newControl = [addTable, addKey, tmpTimeStamp, "DubAppActive01", addAction, lastUser, "01 Pending", "", "Aggregator"];
+  Contask.appendRow(newControl);
+  if (verbose) {console.log("Control "+addTable+" / "+addAction+" / "+addKey)};
+}
+
+/**
+ * Genera un identificador único aleatorio
+ * 
+ * @param {number} len - Longitud del identificador
+ * @returns {string} - Identificador generado con caracteres alfanuméricos
+ * 
+ * Utilizado para crear IDs únicos para nuevas entidades en DubApp
+ */
+function newKey(len) {
+  const possible = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789";
+  let id = "";
+  if (!Number(len)) {
+    throw new Error("The length must be an integer.")
+  }
+  for (var i = 0; i < len; i++) {
+    id += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return id;
+}

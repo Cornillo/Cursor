@@ -41,7 +41,8 @@ function checkColFormats() {
     var today = new Date();
     var day = today.getDay();
     if (day === 0 || day === 6) {
-      throw new Error("Esta función no se ejecuta los fines de semana");
+      Logger.log("Esta función no se ejecuta los fines de semana");
+      return;
     }
   }
 
