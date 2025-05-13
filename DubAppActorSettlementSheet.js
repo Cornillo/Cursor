@@ -1,3 +1,108 @@
+// INICIO DEL ÁRBOL DE LLAMADAS DE FUNCIONES (SIMPLIFICADO)
+// ------------------------------------------------------
+//
+// PUNTOS DE ENTRADA PRINCIPALES (Funciones llamadas usualmente por Triggers o UI de Apps Script):
+//
+// 1. call()
+//    - actorsSettlement(fechaInicial, fechaFinal)
+//      - actorsSettlement2(fechaInicial, fechaFinal, "Settlement")
+//
+// 2. call3()
+//    - actorsSettlement2(fechaInicial, fechaFinal, "Mailing resume")
+//
+// 3. modalMailing()
+//    - actorsSettlement2(fechaInicial, fechaInicial, "Mailing")
+//
+// 4. modalMailingDebug()
+//    - actorsSettlement2(fechaInicial, fechaFinal, "Mailing")
+//
+// 5. processAdultCases() / processMinorCases() / processRetiredCases() / process1617Cases()
+//    - sendMarkedEmails(sheetName)
+//      - formatDate()
+//      - formatInteger()
+//      - replaceNewlineWithBreak()
+//      - formatCurrency()
+//      - SendEmail.AppSendEmailX() // Librería externa
+//
+// FUNCIÓN CENTRAL DE PROCESAMIENTO: actorsSettlement2(auxFromDate, auxToDate, modal)
+//   - OpenSht() // Para cargar datos de DWO_Character, DWO_CharacterProduction, DWO_SongDetail, DWO_Song
+//   - processAggregatedData() // (Si modal === "Settlement") - Carga datos desde hoja "AGREGADOS"
+//   - ExtractWorkCompleted(charProdSheet, groupRequest) // Para Diálogos y Retomas
+//   - ExtractWorkCompleted(charProdSheet, "Songs") // Para Canciones
+//   - ExtractSongsCompleted(charProdSheet) // (Si modal === "Settlement") - Para liquidación de directores de canciones
+//   - ExtractEvents(auxFromDate, auxToDate) // (Si modal === "Settlement") - Para liquidación de directores de diálogos
+//   - CheckUnified(dataArray) // Para agrupar y sumar datos
+//   - SaveSheet(dataArray, sheetName) // (Si modal === "Settlement") - Para guardar en hojas de liquidación
+//     - equalizeRows()
+//     - CleanFilters()
+//     - orderMatrixByFirstColumn()
+//   - AgregarTablaHTML(titulo, htmlBase, datos, modal) // (Si modal !== "Settlement") - Para armar HTML de resumen diario
+//     - formatCurrency()
+//     - SendEmail.AppSendEmailX() // Librería externa (para envío de email por actor en modo Mailing)
+//   - SendEmail.AppSendEmailX() // Librería externa (para envío de resumen general)
+//   - Utilities.formatDate() // Librería externa
+//
+// FUNCIONES DE EXTRACCIÓN Y CÁLCULO PRINCIPALES:
+//   - ExtractWorkCompleted(charProdSheet, groupRequest)
+//     - labelProject()
+//     - actorData()
+//     - Amount()
+//     - calculateSongAmount()
+//     - grupoEtario()
+//     - formatDate()
+//
+//   - ExtractSongsCompleted(charProdSheet)
+//     - Time2Seconds()
+//     - labelProject()
+//
+//   - ExtractEvents(auxFromDate, auxToDate)
+//     - OpenSht() // Para DWO, DWO-Production, DWO-ChannelEventType, DWO-Event
+//     - labelProject()
+//
+//   - calculateSongAmount(songTask, songCompletedDate)
+//     - OpenSht() // Para DWO-Rate, DWO-RateItem
+//     - convertToDate()
+//
+//   - Amount(auxLoops, auxDate, auxService, auxAttribute, auxDuration)
+//     - OpenSht() // Para DWO-Rate, DWO-RateItem
+//     - convertToDate()
+//     - String2Seconds()
+//
+// FUNCIONES DE DATOS Y UTILIDADES GENERALES (usadas en múltiples lugares):
+//   - OpenSht(sheetNameAux, ndxColValues, keyCol, keyValue, ndxColFiltered, ss) // Utilidad principal para leer hojas
+//   - labelProject(auxProduction_ID, recordingDate) // Obtiene detalles del proyecto/producción
+//     - OpenSht()
+//     - Time2String()
+//     - Seconds2String()
+//     - actorData()
+//     - grupoEtario()
+//   - actorData(auxActorID) // Obtiene detalles del actor
+//     - OpenSht()
+//   - grupoEtario(fechaInicio, fechaFin) // Calcula grupo etario
+//   - CheckUnified(matrixParam) // Unifica filas y recalcula montos si es necesario
+//     - convertirStringAFecha()
+//     - Amount()
+//   - formatDate(date)
+//   - convertToDate(auxDate)
+//   - convertirStringAFecha(dateString)
+//   - formatCurrency(value)
+//   - formatInteger(value)
+//   - replaceNewlineWithBreak(text)
+//   - Time2Seconds(fecha)
+//   - Time2String(fecha)
+//   - Seconds2String(duracion)
+//   - String2Seconds(cadenaDuracion)
+//   - equalizeRows(matrix)
+//   - CleanFilters(ss)
+//   - orderMatrixByFirstColumn(matrix)
+//
+// FUNCIONES NO UTILIZADAS IDENTIFICADAS:
+//   - reintentarConEspera()
+//   - call2() (comentada)
+//
+// ----------------------------------------------------
+// FIN DEL ÁRBOL DE LLAMADAS DE FUNCIONES
+
 //GLOBAL
 const allIDs = databaseID.getID();
 const activeID= allIDs["activeID"];
@@ -923,10 +1028,10 @@ function calculateSongAmount(songTask, songCompletedDate) {
   // Asegurarse de que los datos de tarifas estén cargados
   // Usamos índice 1 (Col A) para DWO-Rate porque ahí está el Rate ID (PK) que relaciona con RateItem
   if (!rateItemValues || !rateValues || !rateNDX) {
-    openSheet("DWO-Rate", 1, "", 0, ssNoTrack);
+    OpenSht("DWO-Rate", 1, 0, "", 0, ssNoTrack);
     rateValues = auxValues;
     rateNDX = auxNDX; // Indexado por Col A de DWO-Rate
-    openSheet("DWO-RateItem", 1, "", 0, ssNoTrack); // Este carga RateItem, el índice Col A no es relevante aquí directamente
+    OpenSht("DWO-RateItem", 1, 0, "", 0, ssNoTrack); // Este carga RateItem, el índice Col A no es relevante aquí directamente
     rateItemValues = auxValues;
     // No necesitamos rateItemNDX para este cálculo, iteraremos.
   }
@@ -1010,17 +1115,17 @@ function calculateSongAmount(songTask, songCompletedDate) {
 
 function labelProject(auxProduction_ID, recordingDate) {
 if(!productionValues) {
-  openSheet("DWO-Production", 1,"",0, ssActive);
+  OpenSht("DWO-Production", 1, 0, "", 0, ssActive);
   productionValues = auxValues;
   productionValuesNDX = auxNDX;
 }
 if(!projectValues) {
-  openSheet("DWO", 2,"",0, ssActive);
+  OpenSht("DWO", 2, 0, "", 0, ssActive);
   projectValues = auxValues;
   projectValuesNDX = auxNDX;
 }
 if(!userValues) {
-  openSheet("App-User", 1,"",0, ssNoTrack);
+  OpenSht("App-User", 1, 0, "", 0, ssNoTrack);
   userValues = auxValues;
   userNDX = auxNDX;
 }
@@ -1147,10 +1252,10 @@ if(aniosTranscurridos < 16) {
 function Amount(auxLoops, auxDate, auxService, auxAttribute, auxDuration) {
 
 if (!rateItemValues) {
-  openSheet("DWO-Rate", 2, "", 0, ssNoTrack);
+  OpenSht("DWO-Rate", 2, 0, "", 0, ssNoTrack);
   rateValues = auxValues;
   rateNDX = auxNDX;
-  openSheet("DWO-RateItem", 1, "", 0, ssNoTrack);
+  OpenSht("DWO-RateItem", 1, 0, "", 0, ssNoTrack);
   rateItemValues = auxValues;
   rateItemNDX = auxNDX;
 }
@@ -1236,7 +1341,7 @@ function actorData(auxActorID) {
 auxActorID=auxActorID.toString();
 
 if(!actorValues) {
-  openSheet("DWO_Actor", 1,"",0, ssNoTrack);
+  OpenSht("DWO_Actor", 1, 0, "", 0, ssNoTrack);
   actorValues = auxValues;
   actorNDX = auxNDX;
 }
@@ -1265,49 +1370,6 @@ if(auxActorRow != -1 ){
     };
 }
 
-}
-
-function openSheet(sheetNameAux, ndxCol, key, ndxCol2, ss) {
-//openSheet("Sheet-to-load", ndx-col, key-value-to-filter, col-to-filter, sheet)
-// 
-// auxSheet*
-// auxValues (complete load)*
-// auxNDX if ndx-col > 0*
-// auxNDX2 if key-value-to-filter = "" and col-to-filter > 0
-// auxFilteredValues if key-value-to-filter <> "" and col-to-filter > 0
-// auxRow if key-value-to-filter <> "" and col-to-filter > 0 and result = 1
-
-auxSheet = ss.getSheetByName(sheetNameAux);
-var lastRow = auxSheet.getLastRow();
-//If empty
-if(lastRow === 1) {auxRow=-1; auxValues=[]; auxNDX=[]; auxNDX2=[]; return}
-var lastCol = auxSheet.getLastColumn();
-var auxData = auxSheet.getRange(2,1,lastRow - 1, lastCol); 
-auxValues = auxData.getValues();
-if(ndxCol2 !=0) {
-  auxNDX2 = auxValues.map(function(r){ return r[ndxCol2-1].toString(); });
-}
-if(ndxCol>0) {
-  auxNDX = auxValues.map(function(r){ return r[ndxCol-1].toString(); });
-  if(key!=""){
-    if(ndxCol2 !=0) {
-      var auxcase = auxNDX2.indexOf(key);
-    } else {
-      var auxcase = auxNDX.indexOf(key);
-    }
-    auxFilteredValues = [];
-    while (auxcase !== -1){
-      auxRow = auxcase;
-      auxFilteredValues.push(auxValues[auxcase]);
-
-      if(ndxCol2 !=0) {
-        auxcase = auxNDX2.indexOf(key, auxcase + 1);
-      } else {
-        auxcase = auxNDX.indexOf(key, auxcase + 1);
-      }
-    }
-  } 
-}
 }
 
 function OpenSht(sheetNameAux, ndxColValues, keyCol, keyValue, ndxColFiltered, ss) {
