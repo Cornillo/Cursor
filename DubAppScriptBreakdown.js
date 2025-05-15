@@ -916,68 +916,91 @@ return "";
 
 function EstimatedTimecode() {
 
-var fila; var auxLoopTCIn; var auxLoopTCOut; var checkAux;
-for (var k = 0; k < script.length; k++) {
-	fila = script[k];
-	if (fila[5] === "Dismissed") { continue; }
+    var fila; var auxLoopTCIn; var auxLoopTCOut; var checkAux;
+    for (var k = 0; k < script.length; k++) {
+        fila = script[k];
+        if (fila[5] === "Dismissed") { continue; }
 
-	var palabras = fila[3].split(" ").length; // Cuenta las palabras en la cuarta columna
-	var segundosAAgregar = parseInt(palabras / 1.6); // Calcula los segundos a agregar      
-	var totalSegundos = fila[0] + segundosAAgregar; // Calcula el total de segundos
-	var bypass = false;
+        var palabras = fila[3].split(" ").length; // Cuenta las palabras en la cuarta columna
+        var segundosAAgregar = parseInt(palabras / 1.6); // Calcula los segundos a agregar      
+        var totalSegundos = fila[0] + segundosAAgregar; // Calcula el total de segundos
+        var bypass = false; // Inicializar bypass
+        checkAux = ""; // Inicializar checkAux
 
-	//Compara con siguiente entrada de diálogo
-	if (k + 1 < script.length) {
-		for (var m = k + 1; m < script.length; m++) {
-			if (script[m][5] === "Dismissed") { continue; }
-			if (script[m][0] <= totalSegundos) {
-				totalSegundos = script[m][0]; bypass = true;
-			} else {
-				if (script[m][0] - totalSegundos < 5) {
-					bypass = true;
-				}
-			}
-			break;
-		}
-	}
+        // NUEVA REGLA 1: Si tiene Timecode out cargado (fila[1] no está vacío), no es check y es bypass.
+        if (fila[1] !== null && fila[1] !== "") { // Asumimos que fila[1] es el timecode out original
+            bypass = true;
+            checkAux = ""; // Aseguramos que no sea "Check"
+        } else {
+            // Lógica original para bypass solo si NO tiene timecode out cargado
+            if (k + 1 < script.length) {
+                for (var m = k + 1; m < script.length; m++) {
+                    if (script[m][5] === "Dismissed") { continue; }
+                    if (script[m][0] <= totalSegundos) {
+                        totalSegundos = script[m][0]; bypass = true;
+                    } else {
+                        if (script[m][0] - totalSegundos < 5) {
+                            bypass = true;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
 
-	//Chequea condiciones para supervisión
-	auxLoopTCIn = LoopNumber(script[k][0]);
-	auxLoopTCOut = LoopNumber(totalSegundos);
+        auxLoopTCIn = LoopNumber(script[k][0]);
+        auxLoopTCOut = LoopNumber(totalSegundos);
 
-	//Condiciones de check
-	checkAux = "";
+        // NUEVA REGLA 2: Si la diferencia entre auxLoopTCOut y auxLoopTCIn es mayor a 1, es "Check"
+        // y no hay bypass (a menos que ya se haya establecido por la REGLA 1).
+        if (Math.abs(auxLoopTCOut - auxLoopTCIn) > 1) {
+            checkAux = "Check";
+            // Si la REGLA 1 ya hizo bypass, respetamos eso.
+            // Si no, esta condición fuerza el no-bypass para esta regla específica.
+            if (!(fila[1] !== null && fila[1] !== "")) { // Solo anula bypass si no fue por REGLA 1
+                 bypass = false;
+            }
+            if (!fila[1]) { timecodeOutRevisionFlag = true; }
+        } else {
+            // Lógica original de check si no se aplicó la NUEVA REGLA 2
+            // y si bypass no es true por la REGLA 1.
+            if (checkAux !== "Check" && !(fila[1] !== null && fila[1] !== "")) {
+                if (auxLoopTCIn != auxLoopTCOut) {
+                    if (bypass === false) { // Solo aplicar si no hay bypass por proximidad (y no por REGLA 1)
+                        var proximaIntervencionEncontrada = false;
+                        for (var m = k + 1; m < script.length; m++) {
+                            if (script[m][5] === "Dismissed") { continue; } // Ignorar líneas descartadas
+                            if (script[k][2] === script[m][2]) { // Mismo personaje
+                                proximaIntervencionEncontrada = true;
+                                if (LoopNumber(script[m][0]) != auxLoopTCOut) {
+                                    checkAux = "Check";
+                                    if (!fila[1]) { timecodeOutRevisionFlag = true; }
+                                }
+                                break;
+                            }
+                        }
+                        if (!proximaIntervencionEncontrada && (m === script.length)) { // Personaje no vuelve a hablar y se recorrió todo el script restante
+                            checkAux = "Check";
+                            if (!fila[1]) { timecodeOutRevisionFlag = true; }
+                        }
+                    }
+                }
+            }
+        }
 
-	if (auxLoopTCIn != auxLoopTCOut) {
-		//Busca próxima intervención del personaje
-		for (var m = k + 1; m < script.length; m++) {
-			if (script[k][2] === script[m][2]) {
-				if (LoopNumber(script[m][0]) != auxLoopTCOut && bypass === false) {
-					checkAux = "Check";
-					if (!fila[1]) {timecodeOutRevisionFlag = true};
-				}
-				break
-			}
-		}
-		if (m === script.length && bypass === false) {
-			checkAux = "Check";
-			if (!fila[1]) {timecodeOutRevisionFlag = true};
-		}
-	}
+        var nuevasHoras = Math.floor(totalSegundos / 3600);
+        totalSegundos %= 3600;
+        var nuevosMinutos = Math.floor(totalSegundos / 60);
+        var nuevosSegundos = Math.floor(totalSegundos % 60);
 
-	var nuevasHoras = Math.floor(totalSegundos / 3600);
-	totalSegundos %= 3600;
-	var nuevosMinutos = Math.floor(totalSegundos / 60);
-	var nuevosSegundos = Math.floor(totalSegundos % 60);
+        var nuevoTimecode =
+            (nuevasHoras < 10 ? "0" : "") + nuevasHoras + ":" +
+            (nuevosMinutos < 10 ? "0" : "") + nuevosMinutos + ":" +
+            (nuevosSegundos < 10 ? "0" : "") + nuevosSegundos;
 
-	var nuevoTimecode =
-		(nuevasHoras < 10 ? "0" : "") + nuevasHoras + ":" +
-		(nuevosMinutos < 10 ? "0" : "") + nuevosMinutos + ":" +
-		(nuevosSegundos < 10 ? "0" : "") + nuevosSegundos;
-
-	script[k][8] = nuevoTimecode; // Almacena el nuevo timecode en la novena columna
-	script[k][9] = checkAux;
-}
+        script[k][8] = nuevoTimecode; // Almacena el nuevo timecode en la novena columna
+        script[k][9] = checkAux;
+    }
 
 }
 

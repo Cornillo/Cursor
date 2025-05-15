@@ -128,8 +128,10 @@ var actorValues;
 var actorNDX;
 var rateValues;
 var rateNDX;
+var ratePK_NDX; // Nuevo: Índice de DWO-Rate por PK (Col A, RateID) para calculateSongAmount
 var rateItemValues;
 var rateItemNDX;
+var songDetailUpdatesPending = []; // Matriz para acumular actualizaciones de DWO_SongDetail
 var charNDX;
 var charValues;
 var charProdValues;
@@ -188,9 +190,9 @@ function modalMailing(){
   // Crear fecha inicial (hoy a las 00:00)
   var fechaInicial = new Date();
   fechaInicial.setHours(0, 0, 0, 0);
-  
+  var fechaFinal = new Date(fechaInicial); // Crear una nueva instancia de Date
   Logger.log('Ejecución mailing período: ' + fechaInicial);
-  actorsSettlement2(fechaInicial, fechaInicial, "Mailing");
+  actorsSettlement2(fechaInicial, fechaFinal, "Mailing");
 }
 
 function modalMailingDebug(){
@@ -271,6 +273,8 @@ charProdSheet = charProdValues.filter(function(fila) {
 if(charProdSheet.length>0) {
   ExtractWorkCompleted(charProdSheet, "Songs");
 }
+
+applyPendingSongDetailUpdates(); // Aplicar todas las actualizaciones pendientes a DWO_SongDetail
 
 //Musical directors
 if(modal==="Settlement"){
@@ -869,9 +873,36 @@ for (var i = 0; i < charProdSheet.length; i++) {
     auxAmount=Amount(auxLoops, auxDate , "LipSync", "", "");
 
   } else if(groupRequest==="Songs") {
-    auxDate=auxCharProd[18];
-    auxAmount = calculateSongAmount(auxCharProd[10], auxDate);
+    auxDate=auxCharProd[18]; // Col S: Song Completed Date
+    // Logger.log("Calculando monto para tarea: " + auxCharProd[10] + ", Fecha: " + auxDate);
+    auxAmount = calculateSongAmount(auxCharProd[10], auxDate); // Col K: Song Task. auxCharProd[10] es "Task"
     auxLoops="-";
+
+    // INICIO: Lógica de comparación y adición a la lista de pendientes
+    var songDetailID = auxCharProd[0]; // Col A: SongDetail_ID de DWO_SongDetail
+    var recordedAmount = auxCharProd[9]; // Col J: Amount en DWO_SongDetail
+
+    // Asegurarse de que recordedAmount y auxAmount son números para la comparación.
+    // Convertir a flotantes con un número fijo de decimales podría ser útil si hay problemas de precisión.
+    var numericRecordedAmount = parseFloat(recordedAmount);
+    if (isNaN(numericRecordedAmount)) {
+        // Logger.log("Advertencia: El monto grabado para SongDetail ID: " + songDetailID + " no es un número válido: '" + recordedAmount + "'. Se tratará como 0.");
+        numericRecordedAmount = 0; 
+    }
+
+    var numericAuxAmount = parseFloat(auxAmount);
+    if (isNaN(numericAuxAmount)) {
+        // Logger.log("Advertencia: El monto calculado para SongDetail ID: " + songDetailID + " no es un número válido: '" + auxAmount + "'. Se tratará como 0.");
+        numericAuxAmount = 0; 
+    }
+    
+    // Comparar los valores. Usar una pequeña tolerancia (epsilon) si se comparan flotantes es una buena práctica, pero aquí una comparación directa debería funcionar si los valores son consistentes.
+    if (numericRecordedAmount !== numericAuxAmount) {
+        // Logger.log("Diferencia para SongDetail ID: " + songDetailID + ". Grabado: " + numericRecordedAmount + ", Calculado: " + numericAuxAmount + ". Agregando a pendientes.");
+        songDetailUpdatesPending.push([songDetailID, numericAuxAmount]); // Guardar el ID y el nuevo monto calculado
+    }
+    // FIN: Lógica de comparación y adición a la lista de pendientes
+
   }
 
   //Grupo etario
@@ -1025,92 +1056,110 @@ return matrix; // Return the sorted matrix
 }
 
 function calculateSongAmount(songTask, songCompletedDate) {
-  // Asegurarse de que los datos de tarifas estén cargados
-  // Usamos índice 1 (Col A) para DWO-Rate porque ahí está el Rate ID (PK) que relaciona con RateItem
-  if (!rateItemValues || !rateValues || !rateNDX) {
-    OpenSht("DWO-Rate", 1, 0, "", 0, ssNoTrack);
-    rateValues = auxValues;
-    rateNDX = auxNDX; // Indexado por Col A de DWO-Rate
-    OpenSht("DWO-RateItem", 1, 0, "", 0, ssNoTrack); // Este carga RateItem, el índice Col A no es relevante aquí directamente
-    rateItemValues = auxValues;
-    // No necesitamos rateItemNDX para este cálculo, iteraremos.
-  }
+  let rateDataWasReloaded = false; // Bandera para saber si DWO-Rate fue recargado
 
-  // Convertir fecha completado a Date, usar hoy si es nula/inválida
+  // 1. Carga de Datos para DWO-Rate
+  // DWO-Rate Col A (idx 0) = Rate ID (PK)
+  // DWO-Rate Col C (idx 2) = Valid from
+  // DWO-Rate Col D (idx 3) = Valid until
+  if (!rateValues || !ratePK_NDX) {
+    // Logger.log("Cargando DWO-Rate y su índice PK (Col A)...");
+    OpenSht("DWO-Rate", 1, 0, "", 0, ssNoTrack); // Indexar por Col A (Rate ID)
+    rateValues = auxValues;
+    ratePK_NDX = auxNDX;
+    // Logger.log("DWO-Rate cargado. ratePK_NDX tiene " + (ratePK_NDX ? ratePK_NDX.length : 0) + " elementos.");
+    rateDataWasReloaded = true;
+  }
+  const localRateValues = rateValues;
+  const localRatePK_Index = ratePK_NDX;
+
+  // Cargar DWO-RateItem si no está cargado o si DWO-Rate se recargó
+  // DWO-RateItem Col A (idx 0) = Rate ID (FK a DWO-Rate.RateID)
+  // DWO-RateItem Col B (idx 1) = Task
+  // DWO-RateItem Col C (idx 2) = Current payment method
+  // DWO-RateItem Col F (idx 5) = Status
+  if (!rateItemValues || rateDataWasReloaded) {
+    // Logger.log("Cargando DWO-RateItem (rateItemValues era " + (!rateItemValues ? "null" : "existente pero DWO-Rate se recargó") + ")...");
+    OpenSht("DWO-RateItem", 0, 0, "", 0, ssNoTrack); // No se necesita un índice específico para el bucle principal
+    rateItemValues = auxValues;
+    // Logger.log("DWO-RateItem cargado. rateItemValues tiene " + (rateItemValues ? rateItemValues.length : 0) + " filas.");
+  }
+  const localRateItemValues = rateItemValues;
+
+  // 2. Conversión de Fechas (Principal)
   let effectiveDate = null;
   try {
       effectiveDate = convertToDate(songCompletedDate);
-      // Verificar si la conversión resultó en una fecha válida
       if (!(effectiveDate instanceof Date && !isNaN(effectiveDate.getTime()))) {
-          //Logger.log('Fecha de completado inválida o vacía: ${songCompletedDate}. Usando fecha actual.');
-          Logger.log('Fecha de completado inválida o vacía: ' + songCompletedDate + '. Usando fecha actual.');
+          // Logger.log('Fecha de completado inválida o vacía (CALC SONG AMOUNT): ' + songCompletedDate + '. Usando fecha actual.');
           effectiveDate = new Date();
-          effectiveDate.setHours(0, 0, 0, 0); // Estandarizar a medianoche
+          effectiveDate.setHours(0, 0, 0, 0);
       }
   } catch (e) {
-      //Logger.log('Error al convertir fecha: ${songCompletedDate}. Usando fecha actual. Error: ${e}');
-      Logger.log('Error al convertir fecha: ' + songCompletedDate + '. Usando fecha actual. Error: ' + e);
+      // Logger.log('Error al convertir fecha (CALC SONG AMOUNT): ' + songCompletedDate + '. Usando fecha actual. Error: ' + e);
       effectiveDate = new Date();
       effectiveDate.setHours(0, 0, 0, 0);
   }
+  // Logger.log("EffectiveDate para la búsqueda: " + effectiveDate.toISOString());
 
-  // Iterar sobre RateItems
-  for (let i = 0; i < rateItemValues.length; i++) {
-    const rateItem = rateItemValues[i];
-    const itemRateID = rateItem[1];     // Col B: Rate ID (FK a DWO-Rate.RateID)
-    const paymentMethod = rateItem[2]; // Col C: Current payment method
-    const itemTask = rateItem[3];     // Col D: Task (Asumido, por favor verifica)
-    const itemStatus = rateItem[5];   // Col F: Status
+  // 3. Bucle Principal
+  for (let i = 0; i < localRateItemValues.length; i++) {
+    const currentRateItemRow = localRateItemValues[i];
+    const taskInRateItem = currentRateItemRow[1];   // CORREGIDO: Col B (índice 1) para Task
+    const statusInRateItem = currentRateItemRow[5]; // Col F (índice 5) para Status
 
-    // Verificar Task y Status
-    if (itemTask === songTask && itemStatus === "(01) Enabled: Generic") {
-      // Encontrar el Rate correspondiente usando el Rate ID de RateItem
-      const rateIndex = rateNDX.indexOf(itemRateID.toString()); // Buscamos el FK en el índice del PK de DWO-Rate
+    // // Logger.log("Fila " + i + " de RateItem - Task: '" + taskInRateItem + "', Status: '" + statusInRateItem + "'");
 
-      if (rateIndex !== -1) {
-        const rate = rateValues[rateIndex];
-        const validFromStr = rate[2]; // Col C: Valid from en DWO-Rate
-        const validUntilStr = rate[3]; // Col D: Valid until en DWO-Rate
+    if (taskInRateItem === songTask && statusInRateItem === "(01) Enabled: Generic") {
+      // Logger.log("Tarea y Estado COINCIDEN en Fila " + i + " de RateItem. songTask: '" + songTask + "'");
+      
+      const fkRateID_fromRateItem = currentRateItemRow[0]; // CORREGIDO: Col A (índice 0) para Rate ID (FK)
+      // Logger.log("  RateItem Fila " + i + ": Col A (fkRateID_fromRateItem) = '" + fkRateID_fromRateItem + "'");
+
+      const rateTableIndex = localRatePK_Index.indexOf(fkRateID_fromRateItem.toString());
+
+      if (rateTableIndex !== -1) {
+        // Logger.log("    Rate ID '" + fkRateID_fromRateItem + "' ENCONTRADO en DWO-Rate (localRatePK_Index) en índice: " + rateTableIndex);
+        const rateDetailsRow = localRateValues[rateTableIndex];
+        const validFromStr = rateDetailsRow[2];  // Col C de DWO-Rate
+        const validUntilStr = rateDetailsRow[3]; // Col D de DWO-Rate
+        // Logger.log("      DWO-Rate Fila " + rateTableIndex + ": ValidFromStr='" + validFromStr + "', ValidUntilStr='" + validUntilStr + "'");
 
         try {
             const validFrom = convertToDate(validFromStr);
             let validUntil = null;
-            if (validUntilStr) {
+            if (validUntilStr && validUntilStr.toString().trim() !== "") {
                 validUntil = convertToDate(validUntilStr);
             }
 
-            // Verificar que las fechas sean válidas antes de comparar
             const isValidFrom = validFrom instanceof Date && !isNaN(validFrom.getTime());
-            const isValidUntil = !validUntilStr || (validUntil instanceof Date && !isNaN(validUntil.getTime())); // Válido si está vacío o es fecha válida
+            const isValidUntil = !validUntilStr || (validUntilStr.toString().trim() === "") || (validUntil instanceof Date && !isNaN(validUntil.getTime()));
 
             if (isValidFrom && isValidUntil) {
-                // Comprobar rango de fechas (ValidFrom <= effectiveDate AND (ValidUntil >= effectiveDate OR ValidUntil is blank))
                 if (validFrom <= effectiveDate && (!validUntil || validUntil >= effectiveDate)) {
-                    // Tarifa válida encontrada!
-                    const amount = parseFloat(paymentMethod.toString().replace(',', '.')) || 0;
-                    //Logger.log('Tarifa encontrada para Tarea: ${songTask}, Fecha: ${effectiveDate.toISOString()}. Monto: ${amount}');
-                    Logger.log('Tarifa encontrada para Tarea: ' + songTask + ', Fecha: ' + effectiveDate.toISOString() + '. Monto: ' + amount);
-                    return amount; // Devolver el monto
+                    const amountFromRateItem = currentRateItemRow[2]; // Col C (índice 2) para Current payment method
+                    const amount = parseFloat(amountFromRateItem.toString().replace(',', '.')) || 0;
+                    // Logger.log('<<<< TARIFA ENCONTRADA Y VÁLIDA >>>> para Tarea: "' + songTask + '", Fecha: ' + effectiveDate.toISOString() + '. Monto: ' + amount);
+                    return amount;
+                } else {
+                    // Logger.log("        Rango de fechas NO CUMPLE. ValidFrom: " + (validFrom ? validFrom.toISOString() : 'null') + " <= EffectiveDate: " + effectiveDate.toISOString() + " AND (!ValidUntil: " + !validUntil + " OR ValidUntil: " + (validUntil ? validUntil.toISOString() : 'null') + " >= EffectiveDate: " + effectiveDate.toISOString() + ")");
                 }
             } else {
-                 //Logger.log('Fechas inválidas en DWO-Rate para Rate ID ${itemRateID}. From: ${validFromStr}, Until: ${validUntilStr}');
-                 Logger.log('Fechas inválidas en DWO-Rate para Rate ID ' + itemRateID + '. From: ' + validFromStr + ', Until: ' + validUntilStr);
+                 // Logger.log('        Fechas inválidas en DWO-Rate para Rate ID ' + fkRateID_fromRateItem + '. FromStr: ' + validFromStr + ', UntilStr: ' + validUntilStr + '. EffectiveDate: ' + effectiveDate.toISOString());
             }
         } catch (e) {
-            //Logger.log('Error al procesar fechas para Rate ID ${itemRateID} (RateItem Col B) y RateItem ID ${rateItem[0]} (RateItem Col A): ${e}');
-            Logger.log('Error al procesar fechas para Rate ID ' + itemRateID + ' (RateItem Col B) y RateItem ID ' + rateItem[0] + ' (RateItem Col A): ' + e);
-            // Continuar con el siguiente item si hay error de fecha
+            // Logger.log('        ERROR al procesar fechas para Rate ID ' + fkRateID_fromRateItem + ': ' + e.message + "\nStack: " + e.stack);
         }
       } else {
-          // Logger.log('Rate ID ${itemRateID} de RateItem no encontrado en DWO-Rate.'); // Puede ser muy verboso
+        // Logger.log("    Rate ID '" + fkRateID_fromRateItem + "' de RateItem (Col A, fila " + i + ") NO encontrado en DWO-Rate PKs (localRatePK_Index).");
       }
+    } else if (taskInRateItem === songTask) {
+      // Logger.log("Tarea COINCIDE en Fila " + i + " ('" + songTask + "'), pero estado es: '" + statusInRateItem + "' (Se esperaba '(01) Enabled: Generic')");
     }
   }
 
-  // Si no se encontró ninguna tarifa válida
-  //Logger.log('No se encontró tarifa válida para Tarea: ${songTask}, Fecha: ${effectiveDate.toISOString()}');
-  Logger.log('No se encontró tarifa válida para Tarea: ' + songTask + ', Fecha: ' + effectiveDate.toISOString());
-  return 0; // Devolver 0 por defecto
+  Logger.log('No se encontró tarifa válida (Log depurado) para Tarea: ' + songTask + ', Fecha: ' + (effectiveDate ? effectiveDate.toISOString() : songCompletedDate));
+  return 0;
 }
 
 function labelProject(auxProduction_ID, recordingDate) {
@@ -1554,3 +1603,64 @@ if (typeof auxDate === 'string') {
 }
 return auxDate;
 }
+
+function applyPendingSongDetailUpdates() {
+  if (songDetailUpdatesPending.length === 0) {
+    // Logger.log("No hay actualizaciones pendientes para DWO_SongDetail.");
+    return;
+  }
+
+  // Logger.log("Aplicando " + songDetailUpdatesPending.length + " actualizaciones pendientes a DWO_SongDetail...");
+
+  if (!ssActive) ssActive = SpreadsheetApp.openById(activeID);
+  var sheet = ssActive.getSheetByName("DWO_SongDetail");
+  if (!sheet) {
+    Logger.log("Error CRÍTICO: No se pudo encontrar la hoja DWO_SongDetail para aplicar actualizaciones. Las actualizaciones pendientes no se guardarán.");
+    // Considerar alguna forma de notificar este error si es crítico.
+    songDetailUpdatesPending = []; // Limpiar para evitar reintentos con el mismo error
+    return;
+  }
+
+  var range = sheet.getDataRange();
+  var data = range.getValues(); // Obtener todos los datos de la hoja
+  var updatesAppliedCount = 0;
+  var headerRows = 1; // Asumimos que la primera fila es encabezado
+
+  // Crear un mapa para un acceso más eficiente a las actualizaciones pendientes por ID
+  var updatesMap = new Map();
+  for (var i = 0; i < songDetailUpdatesPending.length; i++) {
+    updatesMap.set(songDetailUpdatesPending[i][0], songDetailUpdatesPending[i][1]); // clave: songDetailID, valor: newAmount
+  }
+
+  // Iterar sobre los datos de la hoja (empezando después del encabezado)
+  for (var i = headerRows; i < data.length; i++) {
+    var currentRowID = data[i][0]; // Columna A (índice 0) es SongDetail_ID
+    if (updatesMap.has(currentRowID)) {
+      var newAmount = updatesMap.get(currentRowID);
+      var currentAmountInSheetCell = data[i][9]; // Columna J (índice 9) es Amount
+      
+      var numericCurrentAmountInSheet = parseFloat(currentAmountInSheetCell);
+      if (isNaN(numericCurrentAmountInSheet)) numericCurrentAmountInSheet = 0;
+
+      // Solo actualizar si el nuevo monto es diferente al que está en la celda
+      if (numericCurrentAmountInSheet !== newAmount) {
+        data[i][9] = newAmount; // Actualizar el monto en la matriz de datos en memoria
+        updatesAppliedCount++;
+        // Logger.log("Preparada actualización en DWO_SongDetail para ID: " + currentRowID + ". Monto anterior: " + numericCurrentAmountInSheet + ", Nuevo Monto: " + newAmount);
+      }
+    }
+  }
+
+  // Si se realizaron cambios en la matriz 'data', escribirla de nuevo en la hoja
+  if (updatesAppliedCount > 0) {
+    range.setValues(data);
+    Logger.log(updatesAppliedCount + " fila(s) actualizada(s) en la hoja DWO_SongDetail.");
+  } else {
+    // Logger.log("No se realizaron cambios efectivos en DWO_SongDetail (los montos ya eran correctos o los IDs no se encontraron/coincidieron). Revisar logs si se esperaban cambios.");
+  }
+
+  songDetailUpdatesPending = []; // Limpiar la lista de pendientes después de procesarlas
+}
+
+//Función para pruebas. Eliminar o comentar para producción
+// ... existing code ...
